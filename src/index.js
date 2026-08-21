@@ -117,7 +117,7 @@ function kv(label, value) {
 }
 
 function section(title) {
-  return centerText(`${ANSI.bold}${ANSI.white}${String(title).toUpperCase()}${ANSI.reset}`, screenWidth());
+  return `${ANSI.white}${String(title).toUpperCase()}${ANSI.reset}`;
 }
 
 function colorPriceLine({ label, price, prevPrice, decimals = 0, prefix = "" }) {
@@ -736,7 +736,6 @@ async function main() {
         binanceSpotKvLine,
         sepLine(),
         "",
-        sepLine(),
         section("Signal Analysis"),
         kv("TA Predict:", predictValue),
         kv("Heiken Ashi:", heikenLine.split(": ")[1] ?? heikenLine),
@@ -748,7 +747,6 @@ async function main() {
         kv("Recommendation:", recommendationText),
         sepLine(),
         "",
-        sepLine(),
         section("Trading Readiness"),
         kv("Mode:", tradingMode),
         kv("Reference State:", `${referenceColor}${reference.state}${ANSI.reset}`),
@@ -759,7 +757,6 @@ async function main() {
         kv("Source:", "Chainlink BTC/USD TWAP 60s"),
         sepLine(),
         "",
-        sepLine(),
         section(tradingRuntime.sectionTitle),
         kv("Status:", tradingStatus.text),
         kv("Trades:", `${tradingSummary.total_trades} total | ${tradingSummary.settled_trades} settled | ${tradingSummary.pending_trades} awaiting`),
@@ -768,12 +765,11 @@ async function main() {
         kv("Pending Stake:", `$${formatNumber(tradingSummary.pending_stake_usd, 2)}`),
         sepLine(),
         "",
-        sepLine(),
         section("Session"),
         kv("ET | Session:", `${ANSI.white}${fmtEtTime(new Date())}${ANSI.reset} | ${ANSI.white}${getBtcSession(new Date())}${ANSI.reset}`),
         sepLine(),
         "",
-        centerText(`${ANSI.dim}${ANSI.gray}created by @krajekis | enhanced by @boycez${ANSI.reset}`, screenWidth())
+        centerText(`${ANSI.dim}${ANSI.gray}created by @krajekis · enhanced by @boycez${ANSI.reset}`, screenWidth())
       ].filter((x) => x !== null);
 
       renderScreen(lines.join("\n") + "\n");
