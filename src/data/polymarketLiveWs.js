@@ -39,12 +39,14 @@ export function startPolymarketChainlinkPriceStream({
   let ws = null;
   let closed = false;
   let reconnectMs = 500;
+  let reconnectTimer = null;
 
   let lastPrice = null;
   let lastUpdatedAt = null;
 
   const connect = () => {
     if (closed) return;
+    reconnectTimer = null;
 
     ws = new WebSocket(wsUrl, {
       handshakeTimeout: 10_000,
@@ -52,7 +54,7 @@ export function startPolymarketChainlinkPriceStream({
     });
 
     const scheduleReconnect = () => {
-      if (closed) return;
+      if (closed || reconnectTimer) return;
       try {
         ws?.terminate();
       } catch {
@@ -61,7 +63,7 @@ export function startPolymarketChainlinkPriceStream({
       ws = null;
       const wait = reconnectMs;
       reconnectMs = Math.min(10_000, Math.floor(reconnectMs * 1.5));
-      setTimeout(connect, wait);
+      reconnectTimer = setTimeout(connect, wait);
     };
 
     ws.on("open", () => {
@@ -118,6 +120,8 @@ export function startPolymarketChainlinkPriceStream({
     },
     close() {
       closed = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      reconnectTimer = null;
       try {
         ws?.close();
       } catch {

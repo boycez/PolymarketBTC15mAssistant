@@ -4,6 +4,7 @@ import { resolveTradingMode } from "./trading/mode.js";
 import { TA_EDGE_V1_2_FOK } from "./trading/strategy.js";
 
 const LIVE_CONFIG_KEYS = new Set([
+  "walletAddress",
   "stakeUsd",
   "maxTradesPerSession",
   "cancelOnExit",
@@ -34,6 +35,11 @@ function loadLocalLiveConfig() {
 }
 
 const localLiveConfig = loadLocalLiveConfig();
+
+const liveWalletAddress = String(localLiveConfig.walletAddress ?? "").trim();
+if (tradingMode === "live" && !/^0x[0-9a-fA-F]{40}$/.test(liveWalletAddress)) {
+  throw new Error(`Live config ${liveConfigPath} must contain a valid Polymarket walletAddress.`);
+}
 
 function liveValue(envName, configKey, defaultValue) {
   return process.env[envName] === undefined
@@ -79,6 +85,7 @@ export const CONFIG = {
 
   liveTrading: {
     enabled: tradingMode === "live",
+    walletAddress: liveWalletAddress,
     geoblockUrl: process.env.POLYMARKET_GEOBLOCK_URL || "https://polymarket.com/api/geoblock",
     setupApprovals: liveBoolean("LIVE_TRADING_SETUP_APPROVALS", "setupApprovals", false),
     cancelOnExit: liveBoolean("LIVE_TRADING_CANCEL_ON_EXIT", "cancelOnExit", true),

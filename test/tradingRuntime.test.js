@@ -5,6 +5,18 @@ import path from "node:path";
 import test from "node:test";
 
 import { createTradingRuntime } from "../src/trading/createTradingRuntime.js";
+import { buildSecureClientOptions } from "../src/liveTrading.js";
+
+test("builds SDK authentication with the existing Polymarket trading wallet", async () => {
+  const walletAddress = `0x${"2".repeat(40)}`;
+  const options = buildSecureClientOptions({
+    privateKey: `0x${"1".repeat(64)}`,
+    walletAddress
+  });
+
+  assert.equal(await options.signer.getAddress(), "0x19E7E376E7C213B7E7e7e46cc70A5dD086DAff2A");
+  assert.equal(options.wallet, walletAddress);
+});
 
 test("creates a paper runtime with the shared trading contract", async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "poly-runtime-"));

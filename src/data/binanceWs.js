@@ -16,11 +16,13 @@ export function startBinanceTradeStream({ symbol = CONFIG.symbol, onUpdate } = {
   let ws = null;
   let closed = false;
   let reconnectMs = 500;
+  let reconnectTimer = null;
   let lastPrice = null;
   let lastTs = null;
 
   const connect = () => {
     if (closed) return;
+    reconnectTimer = null;
 
     const url = buildWsUrl(symbol);
     ws = new WebSocket(url, { agent: wsAgentForUrl(url) });
@@ -43,7 +45,7 @@ export function startBinanceTradeStream({ symbol = CONFIG.symbol, onUpdate } = {
     });
 
     const scheduleReconnect = () => {
-      if (closed) return;
+      if (closed || reconnectTimer) return;
       try {
         ws?.terminate();
       } catch {
@@ -52,7 +54,7 @@ export function startBinanceTradeStream({ symbol = CONFIG.symbol, onUpdate } = {
       ws = null;
       const wait = reconnectMs;
       reconnectMs = Math.min(10_000, Math.floor(reconnectMs * 1.5));
-      setTimeout(connect, wait);
+      reconnectTimer = setTimeout(connect, wait);
     };
 
     ws.on("close", scheduleReconnect);
@@ -67,6 +69,8 @@ export function startBinanceTradeStream({ symbol = CONFIG.symbol, onUpdate } = {
     },
     close() {
       closed = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      reconnectTimer = null;
       try {
         ws?.close();
       } catch {

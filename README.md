@@ -266,6 +266,13 @@ tracked `config/live.example.json` template. Set `LIVE_CONFIG_FILE` to use a
 different path. Environment variables override values from the JSON file, which
 in turn override the built-in conservative defaults.
 
+Set `walletAddress` to the public Trading/Proxy Wallet address shown by your
+existing Polymarket account. This is required for email, Google, and Apple
+accounts: their exported private key identifies the signer, while balances and
+positions belong to a separate account wallet. Passing that existing wallet to
+the SDK avoids accidentally creating a new Deposit Wallet and does not require
+a Relayer API key.
+
 The local file contains only user-controlled stake, session, and runtime
 settings. Signal confirmation, entry timing, minimum edge, slippage, and trend
 alignment belong to the versioned strategy in
@@ -282,10 +289,9 @@ Paste or type a `0x`-prefixed 32-byte private key and press `Enter`. No key
 characters are displayed. Press `Esc` or `Ctrl+C` to cancel. Non-interactive
 stdin fails closed because it cannot securely request the key.
 
-The wallet address is not user-configurable. The official SDK derives the
-signer's deterministic Deposit Wallet during authentication. The terminal shows
-the resulting `client.account.wallet` and wallet type in masked form so the
-actual execution account can be verified before automatic orders are enabled.
+The terminal shows the SDK-confirmed `client.account.wallet` and wallet type in
+masked form so the actual execution account can be verified before automatic
+orders are enabled.
 
 Start Live authentication and preflight with:
 

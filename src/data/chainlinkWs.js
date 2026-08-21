@@ -42,6 +42,7 @@ export function startChainlinkPriceStream({
   let ws = null;
   let closed = false;
   let reconnectMs = 500;
+  let reconnectTimer = null;
   let urlIndex = 0;
 
   let lastPrice = null;
@@ -52,6 +53,7 @@ export function startChainlinkPriceStream({
 
   const connect = () => {
     if (closed) return;
+    reconnectTimer = null;
 
     const url = wssUrls[urlIndex % wssUrls.length];
     urlIndex += 1;
@@ -67,7 +69,7 @@ export function startChainlinkPriceStream({
     };
 
     const scheduleReconnect = () => {
-      if (closed) return;
+      if (closed || reconnectTimer) return;
       try {
         ws?.terminate();
       } catch {
@@ -77,7 +79,7 @@ export function startChainlinkPriceStream({
       subId = null;
       const wait = reconnectMs;
       reconnectMs = Math.min(10_000, Math.floor(reconnectMs * 1.5));
-      setTimeout(connect, wait);
+      reconnectTimer = setTimeout(connect, wait);
     };
 
     ws.on("open", () => {
@@ -147,6 +149,8 @@ export function startChainlinkPriceStream({
     },
     close() {
       closed = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      reconnectTimer = null;
       try {
         if (ws && subId) {
           ws.send(JSON.stringify({ jsonrpc: "2.0", id: nextId++, method: "eth_unsubscribe", params: [subId] }));

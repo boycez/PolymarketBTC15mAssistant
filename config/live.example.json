@@ -1,4 +1,5 @@
 {
+  "walletAddress": "REPLACE_WITH_POLYMARKET_TRADING_WALLET",
   "stakeUsd": 5,
   "maxTradesPerSession": 1,
   "cancelOnExit": true,

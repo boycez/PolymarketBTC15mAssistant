@@ -108,6 +108,17 @@ function baseUnitsToUsd(value) {
   }
 }
 
+export function buildSecureClientOptions({ privateKey: signerPrivateKey, walletAddress }) {
+  if (!signerPrivateKey) throw new Error("A signer private key is required when live trading is enabled.");
+  if (!/^0x[0-9a-fA-F]{40}$/.test(walletAddress ?? "")) {
+    throw new Error("An existing Polymarket trading wallet address is required for live trading.");
+  }
+  return {
+    signer: privateKey(signerPrivateKey),
+    wallet: walletAddress
+  };
+}
+
 export class LiveTrader {
   static async create(config = {}) {
     const trader = new LiveTrader(config);
@@ -125,10 +136,7 @@ export class LiveTrader {
     }
 
     if (!trader.client) {
-      if (!config.privateKey) throw new Error("A signer private key is required when live trading is enabled.");
-      trader.client = await createSecureClient({
-        signer: privateKey(config.privateKey)
-      });
+      trader.client = await createSecureClient(buildSecureClientOptions(config));
     }
 
     trader.accountIdentity = trader.client.account ?? null;
