@@ -123,6 +123,17 @@ function baseUnitsToUsd(value) {
   }
 }
 
+function hasUsableAllowances(allowances) {
+  const values = Object.values(allowances ?? {});
+  return values.length > 0 && values.every((value) => {
+    try {
+      return BigInt(String(value)) > 0n;
+    } catch {
+      return false;
+    }
+  });
+}
+
 export async function buildSecureClientOptions({
   privateKey: signerPrivateKey,
   relayerApiKey: relayerKey,
@@ -174,6 +185,8 @@ export class LiveTrader {
       throw new Error(`Insufficient Polymarket collateral balance for a $${trader.stakeUsd.toFixed(2)} live stake.`);
     }
     trader.balanceUsd = balanceUsd;
+    trader.allowanceReady = hasUsableAllowances(collateral?.allowances);
+    trader.authorizationVerified = true;
     trader.ready = true;
     return trader;
   }
@@ -214,6 +227,9 @@ export class LiveTrader {
     this.client = client;
     this.actions = actions;
     this.accountIdentity = null;
+    this.balanceUsd = null;
+    this.allowanceReady = false;
+    this.authorizationVerified = false;
     this.fetchMarket = fetchMarket ?? (async (trade) => {
       if (trade.market_id) return await fetchMarketById(trade.market_id);
       return await fetchMarketBySlug(trade.market_slug);
@@ -524,7 +540,13 @@ export class LiveTrader {
   }
 
   getAccountIdentity() {
-    return this.accountIdentity;
+    if (!this.accountIdentity) return null;
+    return {
+      ...this.accountIdentity,
+      balanceUsd: this.balanceUsd,
+      allowanceStatus: this.allowanceReady ? "Ready" : "Not ready",
+      authorizationStatus: this.authorizationVerified ? "Verified" : "Unverified"
+    };
   }
 
   #appendAttempt({ market, side, tokenId, bestAsk, maxPrice, modelProbability, executionEdge, reference, nowMs, orderStatus = "ERROR", error }) {

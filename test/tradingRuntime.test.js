@@ -131,7 +131,7 @@ test("requires manual confirmation before submitting one guarded FOK order", asy
     async fetchBalanceAllowance(receivedClient, request) {
       assert.equal(receivedClient, client);
       assert.deepEqual(request, { assetType: "COLLATERAL" });
-      return { balance: "5000000", allowances: {} };
+      return { balance: "5000000", allowances: { exchange: "10000000" } };
     },
     async placeMarketOrder(receivedClient, request) {
       assert.equal(receivedClient, client);
@@ -166,6 +166,14 @@ test("requires manual confirmation before submitting one guarded FOK order", asy
       maxTradesPerSession: 1
     }
   });
+  assert.deepEqual(runtime.getAccountIdentity(), {
+    signer: "0x1111111111111111111111111111111111111111",
+    wallet: "0x2222222222222222222222222222222222222222",
+    walletType: "DEPOSIT_WALLET",
+    balanceUsd: 5,
+    allowanceStatus: "Ready",
+    authorizationStatus: "Verified"
+  });
   const input = {
     market: {
       id: "market-1",
@@ -195,7 +203,6 @@ test("requires manual confirmation before submitting one guarded FOK order", asy
   };
 
   assert.equal(runtime.getControlState().state, "DISARMED");
-  assert.deepEqual(runtime.getAccountIdentity(), client.account);
   assert.equal((await runtime.observe({ ...input, nowMs: 1_000 })).state, "DISARMED");
   assert.equal(requests.length, 0);
   assert.equal(runtime.requestArm(), true);
