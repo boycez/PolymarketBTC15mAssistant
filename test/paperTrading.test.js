@@ -13,8 +13,13 @@ function createTrader(overrides = {}) {
     stakeUsd: 10,
     settlementPollMs: 0,
     filePath: path.join(directory, "paper_trades.csv"),
+    summaryFilePath: path.join(directory, "paper_summary.json"),
     ...overrides
   });
+}
+
+function readSummary(trader) {
+  return JSON.parse(fs.readFileSync(trader.summaryFilePath, "utf8"));
 }
 
 function market(overrides = {}) {
@@ -26,18 +31,25 @@ function market(overrides = {}) {
   };
 }
 
+function eligibleInput(overrides = {}) {
+  return {
+    market: market(),
+    recommendation: enterUp,
+    entryPrices: { up: 0.4, down: 0.6 },
+    modelUp: 0.65,
+    modelDown: 0.35,
+    remainingMinutes: 8,
+    regime: "TREND_UP",
+    ...overrides
+  };
+}
+
 const enterUp = { action: "ENTER", side: "UP", phase: "MID", strength: "GOOD" };
 const noTrade = { action: "NO_TRADE", side: null, phase: "MID" };
 
 test("records one paper trade after a stable signal", () => {
   const trader = createTrader();
-  const input = {
-    market: market(),
-    recommendation: enterUp,
-    entryPrices: { up: 0.4, down: 0.6 },
-    modelUp: 0.65,
-    modelDown: 0.35
-  };
+  const input = eligibleInput();
 
   trader.observe({ ...input, nowMs: 0 });
   trader.observe({ ...input, nowMs: 14_999 });
@@ -50,17 +62,22 @@ test("records one paper trade after a stable signal", () => {
   assert.equal(trader.trades[0].side, "UP");
   assert.equal(trader.trades[0].entry_price, 0.4);
   assert.equal(trader.trades[0].shares, 25);
+  assert.equal(trader.trades[0].strategy, "TA_EDGE_V1_1");
+  assert.equal(trader.trades[0].execution_edge, 0.25);
+  assert.equal(trader.trades[0].time_left_minutes, 8);
+  assert.equal(trader.trades[0].regime, "TREND_UP");
   assert.equal(trader.trades[0].status, "PENDING");
+
+  const summary = readSummary(trader);
+  assert.equal(summary.total_trades, 1);
+  assert.equal(summary.pending_trades, 1);
+  assert.equal(summary.pending_stake_usd, 10);
+  assert.equal(summary.realized_pnl_usd, 0);
 });
 
 test("resets confirmation when the recommendation disappears", () => {
   const trader = createTrader();
-  const base = {
-    market: market(),
-    entryPrices: { up: 0.4, down: 0.6 },
-    modelUp: 0.65,
-    modelDown: 0.35
-  };
+  const base = eligibleInput();
 
   trader.observe({ ...base, recommendation: enterUp, nowMs: 0 });
   trader.observe({ ...base, recommendation: noTrade, nowMs: 10_000 });
@@ -72,6 +89,45 @@ test("resets confirmation when the recommendation disappears", () => {
   assert.equal(trader.trades.length, 1);
 });
 
+test("does not trade during the early phase", () => {
+  const trader = createTrader();
+  const input = eligibleInput({
+    recommendation: { ...enterUp, phase: "EARLY" },
+    remainingMinutes: 12
+  });
+
+  trader.observe({ ...input, nowMs: 0 });
+  trader.observe({ ...input, nowMs: 60_000 });
+
+  assert.equal(trader.trades.length, 0);
+  assert.equal(trader.candidate, null);
+});
+
+test("does not trade against the detected trend", () => {
+  const trader = createTrader();
+  const input = eligibleInput({ regime: "TREND_DOWN" });
+
+  trader.observe({ ...input, nowMs: 0 });
+  trader.observe({ ...input, nowMs: 60_000 });
+
+  assert.equal(trader.trades.length, 0);
+  assert.equal(trader.candidate, null);
+});
+
+test("rechecks edge against the executable entry price", () => {
+  const trader = createTrader();
+  const input = eligibleInput({
+    entryPrices: { up: 0.6, down: 0.4 },
+    modelUp: 0.65
+  });
+
+  trader.observe({ ...input, nowMs: 0 });
+  trader.observe({ ...input, nowMs: 15_000 });
+
+  assert.equal(trader.trades.length, 0);
+  assert.equal(trader.candidate, null);
+});
+
 test("settles a winning trade from the official resolved outcome", async () => {
   const trader = createTrader({
     fetchMarket: async () => ({
@@ -81,13 +137,9 @@ test("settles a winning trade from the official resolved outcome", async () => {
       outcomePrices: '["1", "0"]'
     })
   });
-  const input = {
-    market: market({ endDate: "1970-01-01T00:00:10.000Z" }),
-    recommendation: enterUp,
-    entryPrices: { up: 0.4, down: 0.6 },
-    modelUp: 0.65,
-    modelDown: 0.35
-  };
+  const input = eligibleInput({
+    market: market({ endDate: "1970-01-01T00:00:10.000Z" })
+  });
 
   trader.observe({ ...input, nowMs: 0 });
   trader.observe({ ...input, nowMs: 15_000 });
@@ -98,6 +150,15 @@ test("settles a winning trade from the official resolved outcome", async () => {
   assert.equal(trader.trades[0].payout, 25);
   assert.equal(trader.trades[0].pnl, 15);
   assert.equal(trader.trades[0].status, "SETTLED");
+
+  const summary = readSummary(trader);
+  assert.equal(summary.settled_trades, 1);
+  assert.equal(summary.pending_trades, 0);
+  assert.equal(summary.wins, 1);
+  assert.equal(summary.win_rate_pct, 100);
+  assert.equal(summary.settled_payout_usd, 25);
+  assert.equal(summary.realized_pnl_usd, 15);
+  assert.equal(summary.pending_stake_usd, 0);
 });
 
 test("does not infer a winner before official resolution", () => {

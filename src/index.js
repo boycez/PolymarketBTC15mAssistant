@@ -588,7 +588,9 @@ async function main() {
           down: poly.ok ? (poly.orderbook.down.bestAsk ?? marketDown) : null
         },
         modelUp: timeAware.adjustedUp,
-        modelDown: timeAware.adjustedDown
+        modelDown: timeAware.adjustedDown,
+        remainingMinutes: timeLeftMin,
+        regime: regimeInfo.regime
       });
 
       const spotPrice = wsPrice ?? lastPrice;
@@ -689,7 +691,6 @@ async function main() {
         sepLine(),
         "",
         kv("TA Predict:", predictValue),
-        kv("Paper Trade:", paperStatus.text),
         kv("Heiken Ashi:", heikenLine.split(": ")[1] ?? heikenLine),
         kv("RSI:", rsiLine.split(": ")[1] ?? rsiLine),
         kv("MACD:", macdLine.split(": ")[1] ?? macdLine),
@@ -707,6 +708,11 @@ async function main() {
         sepLine(),
         "",
         binanceSpotKvLine,
+        "",
+        sepLine(),
+        "",
+        section("PAPER TRADING"),
+        kv("Status:", paperStatus.text),
         "",
         sepLine(),
         "",

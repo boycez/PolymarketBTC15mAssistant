@@ -4,6 +4,7 @@ import path from "node:path";
 import { fetchMarketBySlug } from "./data/polymarket.js";
 
 const COLUMNS = [
+  "strategy",
   "market_id",
   "market_slug",
   "market_end_time",
@@ -13,6 +14,11 @@ const COLUMNS = [
   "stake_usd",
   "shares",
   "model_probability",
+  "market_probability",
+  "execution_edge",
+  "signal_confirmed_seconds",
+  "time_left_minutes",
+  "regime",
   "phase",
   "strength",
   "status",
@@ -91,24 +97,46 @@ export function getResolvedWinner(market) {
 export class PaperTrader {
   constructor({
     enabled = true,
-    confirmationSeconds = 15,
+    strategy = "TA_EDGE_V1_1",
+    confirmationSeconds = 30,
+    minRemainingMinutes = 5,
+    maxRemainingMinutes = 10,
+    minExecutionEdge = 0.1,
+    requireTrendAlignment = true,
     stakeUsd = 10,
     settlementPollMs = 30_000,
     filePath = "./logs/paper_trades.csv",
+    summaryFilePath = "./logs/paper_summary.json",
     fetchMarket = fetchMarketBySlug
   } = {}) {
     this.enabled = enabled;
+    this.strategy = strategy;
     this.confirmationMs = confirmationSeconds * 1_000;
+    this.minRemainingMinutes = minRemainingMinutes;
+    this.maxRemainingMinutes = maxRemainingMinutes;
+    this.minExecutionEdge = minExecutionEdge;
+    this.requireTrendAlignment = requireTrendAlignment;
     this.stakeUsd = stakeUsd;
     this.settlementPollMs = settlementPollMs;
     this.filePath = filePath;
+    this.summaryFilePath = summaryFilePath;
     this.fetchMarket = fetchMarket;
     this.trades = this.#loadTrades();
     this.candidate = null;
     this.lastSettlementCheckMs = 0;
+    this.#saveSummary();
   }
 
-  observe({ market, recommendation, entryPrices, modelUp, modelDown, nowMs = Date.now() }) {
+  observe({
+    market,
+    recommendation,
+    entryPrices,
+    modelUp,
+    modelDown,
+    remainingMinutes,
+    regime,
+    nowMs = Date.now()
+  }) {
     if (!this.enabled || !market?.slug) return this.getStatus(market?.slug, nowMs);
 
     const marketSlug = String(market.slug);
@@ -118,12 +146,18 @@ export class PaperTrader {
       return this.getStatus(marketSlug, nowMs);
     }
 
-    if (recommendation?.action !== "ENTER" || !recommendation?.side) {
+    const side = String(recommendation?.side ?? "").toUpperCase();
+    const timeIsEligible = Number.isFinite(remainingMinutes)
+      && remainingMinutes >= this.minRemainingMinutes
+      && remainingMinutes <= this.maxRemainingMinutes;
+    const expectedRegime = side === "UP" ? "TREND_UP" : side === "DOWN" ? "TREND_DOWN" : null;
+    const trendIsEligible = !this.requireTrendAlignment || regime === expectedRegime;
+
+    if (recommendation?.action !== "ENTER" || !side || !timeIsEligible || !trendIsEligible) {
       this.candidate = null;
       return this.getStatus(marketSlug, nowMs);
     }
 
-    const side = String(recommendation.side).toUpperCase();
     const candidateKey = `${marketSlug}:${side}`;
     if (this.candidate?.key !== candidateKey) {
       this.candidate = { key: candidateKey, marketSlug, side, startedAtMs: nowMs };
@@ -136,13 +170,25 @@ export class PaperTrader {
 
     const entryPrice = finiteNumber(side === "UP" ? entryPrices?.up : entryPrices?.down);
     const modelProbability = finiteNumber(side === "UP" ? modelUp : modelDown);
+    const executionEdge = entryPrice === null || modelProbability === null
+      ? null
+      : modelProbability - entryPrice;
     const endTimeMs = new Date(market.endDate).getTime();
-    if (entryPrice === null || entryPrice <= 0 || entryPrice >= 1 || !Number.isFinite(endTimeMs)) {
+    if (
+      entryPrice === null
+      || entryPrice <= 0
+      || entryPrice >= 1
+      || executionEdge === null
+      || executionEdge < this.minExecutionEdge
+      || !Number.isFinite(endTimeMs)
+    ) {
+      this.candidate = null;
       return this.getStatus(marketSlug, nowMs);
     }
 
     const shares = this.stakeUsd / entryPrice;
     this.trades.push({
+      strategy: this.strategy,
       market_id: String(market.id ?? ""),
       market_slug: marketSlug,
       market_end_time: new Date(endTimeMs).toISOString(),
@@ -152,6 +198,11 @@ export class PaperTrader {
       stake_usd: this.stakeUsd,
       shares,
       model_probability: modelProbability,
+      market_probability: entryPrice,
+      execution_edge: executionEdge,
+      signal_confirmed_seconds: this.confirmationMs / 1_000,
+      time_left_minutes: remainingMinutes,
+      regime: String(regime ?? ""),
       phase: String(recommendation.phase ?? ""),
       strength: String(recommendation.strength ?? ""),
       status: "PENDING",
@@ -242,5 +293,32 @@ export class PaperTrader {
       lines.push(COLUMNS.map((column) => csvValue(trade[column])).join(","));
     }
     fs.writeFileSync(this.filePath, `${lines.join("\n")}\n`, "utf8");
+    this.#saveSummary();
+  }
+
+  #saveSummary() {
+    const settledTrades = this.trades.filter((trade) => trade.status === "SETTLED");
+    const pendingTrades = this.trades.filter((trade) => trade.status === "PENDING");
+    const wins = settledTrades.filter((trade) => (finiteNumber(trade.pnl) ?? 0) > 0).length;
+    const losses = settledTrades.filter((trade) => (finiteNumber(trade.pnl) ?? 0) < 0).length;
+    const realizedPnl = settledTrades.reduce((sum, trade) => sum + (finiteNumber(trade.pnl) ?? 0), 0);
+    const settledPayout = settledTrades.reduce((sum, trade) => sum + (finiteNumber(trade.payout) ?? 0), 0);
+    const pendingStake = pendingTrades.reduce((sum, trade) => sum + (finiteNumber(trade.stake_usd) ?? 0), 0);
+
+    const summary = {
+      updated_at: new Date().toISOString(),
+      total_trades: this.trades.length,
+      settled_trades: settledTrades.length,
+      pending_trades: pendingTrades.length,
+      wins,
+      losses,
+      win_rate_pct: settledTrades.length ? (wins / settledTrades.length) * 100 : 0,
+      settled_payout_usd: settledPayout,
+      realized_pnl_usd: realizedPnl,
+      pending_stake_usd: pendingStake
+    };
+
+    fs.mkdirSync(path.dirname(this.summaryFilePath), { recursive: true });
+    fs.writeFileSync(this.summaryFilePath, `${JSON.stringify(summary, null, 2)}\n`, "utf8");
   }
 }

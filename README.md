@@ -178,13 +178,30 @@ npm start
 
 ## Paper trading
 
-Paper trading is enabled by default. The assistant waits for the same `BUY UP`
-or `BUY DOWN` recommendation to remain active for 15 seconds, then records at
-most one simulated trade for that market in:
+Paper trading is enabled by default. The `TA_EDGE_V1_1` strategy records at
+most one simulated trade for a market when all of these conditions remain true
+for 30 seconds:
+
+- The market has between 5 and 10 minutes remaining.
+- The recommendation is `BUY UP` or `BUY DOWN`.
+- The detected regime agrees with the direction (`TREND_UP` or `TREND_DOWN`).
+- The model probability exceeds the executable best ask by at least 10%.
+
+Trades are recorded in:
 
 ```text
 logs/paper_trades.csv
 ```
+
+An aggregate summary is maintained separately in:
+
+```text
+logs/paper_summary.json
+```
+
+The summary is refreshed on startup, whenever a paper trade is created, and
+after each official settlement. It includes total, settled and pending trades,
+wins, losses, win rate, settled payout, realized PnL, and pending stake.
 
 The simulated entry uses the order book best ask when available and a default
 stake of $10. After the market end time, the assistant polls the Polymarket
@@ -195,20 +212,28 @@ allow pending trades to be settled.
 The `Paper Trade` line on the console shows one of these states:
 
 - `waiting for stable signal`
-- `UP confirming 8/15s`
+- `UP confirming 18/30s`
 - `UP PENDING @ 42.0c`
 - `UP SETTLED (+$13.81)`
 
 Optional environment variables:
 
 - `PAPER_TRADING_ENABLED` (default: `true`)
-- `PAPER_TRADE_CONFIRMATION_SECONDS` (default: `15`)
+- `PAPER_TRADE_STRATEGY` (default: `TA_EDGE_V1_1`)
+- `PAPER_TRADE_CONFIRMATION_SECONDS` (default: `30`)
+- `PAPER_TRADE_MIN_REMAINING_MINUTES` (default: `5`)
+- `PAPER_TRADE_MAX_REMAINING_MINUTES` (default: `10`)
+- `PAPER_TRADE_MIN_EXECUTION_EDGE` (default: `0.1`)
+- `PAPER_TRADE_REQUIRE_TREND_ALIGNMENT` (default: `true`)
 - `PAPER_TRADE_STAKE_USD` (default: `10`)
 - `PAPER_TRADE_SETTLEMENT_POLL_MS` (default: `30000`)
 - `PAPER_TRADE_FILE` (default: `./logs/paper_trades.csv`)
+- `PAPER_TRADE_SUMMARY_FILE` (default: `./logs/paper_summary.json`)
 
-Paper PnL does not include Polymarket fees. This feature never connects a wallet
-or places a real order.
+Each paper trade also records its strategy, executable market probability,
+execution edge, confirmation duration, remaining time, and detected regime for
+later analysis. Paper PnL does not include Polymarket fees. This feature never
+connects a wallet or places a real order.
 
 Run the local behavior tests with:
 

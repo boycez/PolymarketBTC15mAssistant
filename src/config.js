@@ -17,10 +17,16 @@ export const CONFIG = {
 
   paperTrading: {
     enabled: (process.env.PAPER_TRADING_ENABLED || "true").toLowerCase() === "true",
-    confirmationSeconds: Number(process.env.PAPER_TRADE_CONFIRMATION_SECONDS || 15),
+    strategy: process.env.PAPER_TRADE_STRATEGY || "TA_EDGE_V1_1",
+    confirmationSeconds: Number(process.env.PAPER_TRADE_CONFIRMATION_SECONDS || 30),
+    minRemainingMinutes: Number(process.env.PAPER_TRADE_MIN_REMAINING_MINUTES || 5),
+    maxRemainingMinutes: Number(process.env.PAPER_TRADE_MAX_REMAINING_MINUTES || 10),
+    minExecutionEdge: Number(process.env.PAPER_TRADE_MIN_EXECUTION_EDGE || 0.1),
+    requireTrendAlignment: (process.env.PAPER_TRADE_REQUIRE_TREND_ALIGNMENT || "true").toLowerCase() === "true",
     stakeUsd: Number(process.env.PAPER_TRADE_STAKE_USD || 10),
     settlementPollMs: Number(process.env.PAPER_TRADE_SETTLEMENT_POLL_MS || 30_000),
-    filePath: process.env.PAPER_TRADE_FILE || "./logs/paper_trades.csv"
+    filePath: process.env.PAPER_TRADE_FILE || "./logs/paper_trades.csv",
+    summaryFilePath: process.env.PAPER_TRADE_SUMMARY_FILE || "./logs/paper_summary.json"
   },
 
   polymarket: {
