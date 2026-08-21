@@ -205,22 +205,13 @@ Trades are recorded in:
 logs/paper_trades.csv
 ```
 
-An aggregate summary is maintained separately in:
-
-```text
-logs/paper_summary.json
-```
-
-The summary is refreshed on startup, whenever a paper trade is created, and
-after each official settlement. It includes total, settled and pending trades,
-wins, losses, win rate, settled payout, realized PnL, and pending stake.
-
 The default all-in stake is $10. The CSV records best ask, limit price, average
 fill price, worst fill price, slippage, notional, fee, shares, and net execution
 edge. After the market end time, the assistant polls the Polymarket Gamma API
 until the market is officially resolved. It then records the winning outcome,
-payout, and fee-adjusted PnL in the same CSV file. Keep or restart the assistant
-to allow awaiting trades to be settled.
+payout, fee-adjusted PnL, and an explicit `result` of `WIN` or `LOSE` in the same
+CSV file. Unsettled trades use `result=PENDING`. Keep or restart the assistant to
+allow awaiting trades to be settled.
 
 The `Paper Trade` line on the console shows one of these states:
 
@@ -228,6 +219,9 @@ The `Paper Trade` line on the console shows one of these states:
 - `UP confirming 18/30s`
 - `UP AWAITING_SETTLEMENT @ 42.0c`
 - `UP SETTLED (+$13.81)`
+
+The separate `PAPER TRADING` console section also shows total, settled and
+awaiting trades, wins and losses, win rate, realized PnL, and pending stake.
 
 Optional environment variables:
 
@@ -242,7 +236,6 @@ Optional environment variables:
 - `PAPER_TRADE_STAKE_USD` (default: `10`)
 - `PAPER_TRADE_SETTLEMENT_POLL_MS` (default: `30000`)
 - `PAPER_TRADE_FILE` (default: `./logs/paper_trades.csv`)
-- `PAPER_TRADE_SUMMARY_FILE` (default: `./logs/paper_summary.json`)
 
 Each paper trade also records its strategy, execution details, confirmation
 duration, remaining time, and detected regime for later analysis. The simulator

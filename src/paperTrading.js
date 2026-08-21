@@ -36,6 +36,7 @@ const COLUMNS = [
   "strength",
   "status",
   "winner",
+  "result",
   "payout",
   "pnl",
   "settled_at"
@@ -87,6 +88,13 @@ function parseCsvLine(line) {
 function finiteNumber(value) {
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+function tradeResult(trade) {
+  if (trade?.status !== "SETTLED") return "PENDING";
+  return String(trade?.side).toUpperCase() === String(trade?.winner).toUpperCase()
+    ? "WIN"
+    : "LOSE";
 }
 
 function floorTo(value, decimals) {
@@ -229,7 +237,6 @@ export class PaperTrader {
     stakeUsd = 10,
     settlementPollMs = 30_000,
     filePath = "./logs/paper_trades.csv",
-    summaryFilePath = "./logs/paper_summary.json",
     fetchMarket = null
   } = {}) {
     this.enabled = enabled;
@@ -243,7 +250,6 @@ export class PaperTrader {
     this.stakeUsd = stakeUsd;
     this.settlementPollMs = settlementPollMs;
     this.filePath = filePath;
-    this.summaryFilePath = summaryFilePath;
     this.fetchMarket = fetchMarket ?? (async (trade) => {
       if (trade.market_id) {
         const market = await fetchMarketById(trade.market_id);
@@ -252,9 +258,11 @@ export class PaperTrader {
       return await fetchMarketBySlug(trade.market_slug);
     });
     this.trades = this.#loadTrades();
+    const needsResultMigration = this.trades.some((trade) => !trade.result);
+    for (const trade of this.trades) trade.result = tradeResult(trade);
+    if (needsResultMigration) this.#saveTrades();
     this.candidate = null;
     this.lastSettlementCheckMs = 0;
-    this.#saveSummary();
   }
 
   observe({
@@ -374,6 +382,7 @@ export class PaperTrader {
       strength: String(recommendation.strength ?? ""),
       status: "AWAITING_SETTLEMENT",
       winner: "",
+      result: "PENDING",
       payout: "",
       pnl: "",
       settled_at: ""
@@ -406,6 +415,7 @@ export class PaperTrader {
         const payout = trade.side === winner ? shares : 0;
         trade.status = "SETTLED";
         trade.winner = winner;
+        trade.result = tradeResult(trade);
         trade.payout = payout;
         trade.pnl = payout - stakeUsd;
         trade.settled_at = new Date(nowMs).toISOString();
@@ -443,6 +453,29 @@ export class PaperTrader {
     return { state: "WAITING", text: "waiting for stable signal" };
   }
 
+  getSummary() {
+    const settledTrades = this.trades.filter((trade) => trade.status === "SETTLED");
+    const pendingTrades = this.trades.filter((trade) => ["PENDING", "AWAITING_SETTLEMENT"].includes(trade.status));
+    const wins = settledTrades.filter((trade) => tradeResult(trade) === "WIN").length;
+    const losses = settledTrades.filter((trade) => tradeResult(trade) === "LOSE").length;
+    const realizedPnl = settledTrades.reduce((sum, trade) => sum + (finiteNumber(trade.pnl) ?? 0), 0);
+    const settledPayout = settledTrades.reduce((sum, trade) => sum + (finiteNumber(trade.payout) ?? 0), 0);
+    const pendingStake = pendingTrades.reduce((sum, trade) => sum + (finiteNumber(trade.stake_usd) ?? 0), 0);
+
+    return {
+      updated_at: new Date().toISOString(),
+      total_trades: this.trades.length,
+      settled_trades: settledTrades.length,
+      pending_trades: pendingTrades.length,
+      wins,
+      losses,
+      win_rate_pct: settledTrades.length ? (wins / settledTrades.length) * 100 : 0,
+      settled_payout_usd: settledPayout,
+      realized_pnl_usd: realizedPnl,
+      pending_stake_usd: pendingStake
+    };
+  }
+
   #loadTrades() {
     if (!fs.existsSync(this.filePath)) return [];
     const lines = fs.readFileSync(this.filePath, "utf8").trim().split("\n");
@@ -462,32 +495,5 @@ export class PaperTrader {
       lines.push(COLUMNS.map((column) => csvValue(trade[column])).join(","));
     }
     fs.writeFileSync(this.filePath, `${lines.join("\n")}\n`, "utf8");
-    this.#saveSummary();
-  }
-
-  #saveSummary() {
-    const settledTrades = this.trades.filter((trade) => trade.status === "SETTLED");
-    const pendingTrades = this.trades.filter((trade) => ["PENDING", "AWAITING_SETTLEMENT"].includes(trade.status));
-    const wins = settledTrades.filter((trade) => (finiteNumber(trade.pnl) ?? 0) > 0).length;
-    const losses = settledTrades.filter((trade) => (finiteNumber(trade.pnl) ?? 0) < 0).length;
-    const realizedPnl = settledTrades.reduce((sum, trade) => sum + (finiteNumber(trade.pnl) ?? 0), 0);
-    const settledPayout = settledTrades.reduce((sum, trade) => sum + (finiteNumber(trade.payout) ?? 0), 0);
-    const pendingStake = pendingTrades.reduce((sum, trade) => sum + (finiteNumber(trade.stake_usd) ?? 0), 0);
-
-    const summary = {
-      updated_at: new Date().toISOString(),
-      total_trades: this.trades.length,
-      settled_trades: settledTrades.length,
-      pending_trades: pendingTrades.length,
-      wins,
-      losses,
-      win_rate_pct: settledTrades.length ? (wins / settledTrades.length) * 100 : 0,
-      settled_payout_usd: settledPayout,
-      realized_pnl_usd: realizedPnl,
-      pending_stake_usd: pendingStake
-    };
-
-    fs.mkdirSync(path.dirname(this.summaryFilePath), { recursive: true });
-    fs.writeFileSync(this.summaryFilePath, `${JSON.stringify(summary, null, 2)}\n`, "utf8");
   }
 }

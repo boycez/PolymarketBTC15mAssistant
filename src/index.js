@@ -595,6 +595,13 @@ async function main() {
         remainingMinutes: timeLeftMin,
         regime: regimeInfo.regime
       });
+      const paperSummary = paperTrader.getSummary();
+      const paperPnlColor = paperSummary.realized_pnl_usd > 0
+        ? ANSI.green
+        : paperSummary.realized_pnl_usd < 0
+          ? ANSI.red
+          : ANSI.gray;
+      const paperPnlSign = paperSummary.realized_pnl_usd > 0 ? "+" : "";
 
       const spotPrice = wsPrice ?? lastPrice;
       const currentPrice = chainlink?.price ?? null;
@@ -676,7 +683,7 @@ async function main() {
           : timeLeftMin >= 0 && timeLeftMin < 5
             ? ANSI.red
             : ANSI.reset;
-      const timeLeftLine = `⏱ Time left: ${timeColor}${fmtTimeLeft(timeLeftMin)}${ANSI.reset}`;
+          const timeLeftLine = `⏱ Time left: ${timeColor}${fmtTimeLeft(timeLeftMin)}${ANSI.reset}`;
 
       const polyTimeLeftColor = settlementLeftMin !== null
         ? (settlementLeftMin >= 10 && settlementLeftMin <= 15
@@ -718,6 +725,10 @@ async function main() {
         "",
         section("PAPER TRADING"),
         kv("Status:", paperStatus.text),
+        kv("Trades:", `${paperSummary.total_trades} total | ${paperSummary.settled_trades} settled | ${paperSummary.pending_trades} awaiting`),
+        kv("Record:", `${paperSummary.wins}W / ${paperSummary.losses}L | ${formatNumber(paperSummary.win_rate_pct, 1)}%`),
+        kv("Realized PnL:", `${paperPnlColor}${paperPnlSign}$${formatNumber(paperSummary.realized_pnl_usd, 2)}${ANSI.reset}`),
+        kv("Pending stake:", `$${formatNumber(paperSummary.pending_stake_usd, 2)}`),
         "",
         sepLine(),
         "",

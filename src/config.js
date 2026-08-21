@@ -26,8 +26,7 @@ export const CONFIG = {
     requireTrendAlignment: (process.env.PAPER_TRADE_REQUIRE_TREND_ALIGNMENT || "true").toLowerCase() === "true",
     stakeUsd: Number(process.env.PAPER_TRADE_STAKE_USD || 10),
     settlementPollMs: Number(process.env.PAPER_TRADE_SETTLEMENT_POLL_MS || 30_000),
-    filePath: process.env.PAPER_TRADE_FILE || "./logs/paper_trades.csv",
-    summaryFilePath: process.env.PAPER_TRADE_SUMMARY_FILE || "./logs/paper_summary.json"
+    filePath: process.env.PAPER_TRADE_FILE || "./logs/paper_trades.csv"
   },
 
   polymarket: {

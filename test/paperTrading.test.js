@@ -13,13 +13,8 @@ function createTrader(overrides = {}) {
     stakeUsd: 10,
     settlementPollMs: 0,
     filePath: path.join(directory, "paper_trades.csv"),
-    summaryFilePath: path.join(directory, "paper_summary.json"),
     ...overrides
   });
-}
-
-function readSummary(trader) {
-  return JSON.parse(fs.readFileSync(trader.summaryFilePath, "utf8"));
 }
 
 function market(overrides = {}) {
@@ -90,8 +85,9 @@ test("records one paper trade after a stable signal", () => {
   assert.equal(trader.trades[0].time_left_minutes, 8);
   assert.equal(trader.trades[0].regime, "TREND_UP");
   assert.equal(trader.trades[0].status, "AWAITING_SETTLEMENT");
+  assert.equal(trader.trades[0].result, "PENDING");
 
-  const summary = readSummary(trader);
+  const summary = trader.getSummary();
   assert.equal(summary.total_trades, 1);
   assert.equal(summary.pending_trades, 1);
   assert.equal(summary.pending_stake_usd, 10);
@@ -229,8 +225,9 @@ test("settles a winning trade from the official resolved outcome", async () => {
   assert.equal(trader.trades[0].payout, 25);
   assert.equal(trader.trades[0].pnl, 15);
   assert.equal(trader.trades[0].status, "SETTLED");
+  assert.equal(trader.trades[0].result, "WIN");
 
-  const summary = readSummary(trader);
+  const summary = trader.getSummary();
   assert.equal(summary.settled_trades, 1);
   assert.equal(summary.pending_trades, 0);
   assert.equal(summary.wins, 1);
@@ -238,6 +235,29 @@ test("settles a winning trade from the official resolved outcome", async () => {
   assert.equal(summary.settled_payout_usd, 25);
   assert.equal(summary.realized_pnl_usd, 15);
   assert.equal(summary.pending_stake_usd, 0);
+});
+
+test("marks a settled trade as a loss when the other outcome wins", async () => {
+  const trader = createTrader({
+    fetchMarket: async () => ({
+      closed: true,
+      umaResolutionStatus: "resolved",
+      outcomes: '["Up", "Down"]',
+      outcomePrices: '["0", "1"]'
+    })
+  });
+  const input = eligibleInput({
+    market: market({ endDate: "1970-01-01T00:00:10.000Z" })
+  });
+
+  trader.observe({ ...input, nowMs: 0 });
+  trader.observe({ ...input, nowMs: 15_000 });
+  await trader.settlePending(20_000);
+
+  assert.equal(trader.trades[0].winner, "DOWN");
+  assert.equal(trader.trades[0].result, "LOSE");
+  assert.equal(trader.trades[0].pnl, -10);
+  assert.equal(trader.getSummary().losses, 1);
 });
 
 test("does not infer a winner before official resolution", () => {
