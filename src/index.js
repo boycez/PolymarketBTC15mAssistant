@@ -24,8 +24,8 @@ import { appendCsvRow, formatNumber, formatPct, getCandleWindowTiming, sleep } f
 import { startBinanceTradeStream } from "./data/binanceWs.js";
 import readline from "node:readline";
 import { applyGlobalProxyFromEnv } from "./net/proxy.js";
-import { PaperTrader } from "./paperTrading.js";
 import { ReferencePriceGate } from "./referencePrice.js";
+import { createTradingRuntime } from "./trading/createTradingRuntime.js";
 
 function countVwapCrosses(closes, vwapSeries, lookback) {
   if (closes.length < lookback || vwapSeries.length < lookback) return null;
@@ -405,6 +405,11 @@ async function fetchPolymarketSnapshot() {
 }
 
 async function main() {
+  const tradingRuntime = createTradingRuntime({
+    mode: CONFIG.trading.mode,
+    paperConfig: CONFIG.paperTrading,
+    liveConfig: CONFIG.liveTrading
+  });
   const binanceStream = startBinanceTradeStream({ symbol: CONFIG.symbol });
   const polymarketLiveStream = startPolymarketChainlinkPriceStream({});
   const chainlinkStream = startChainlinkPriceStream({});
@@ -413,7 +418,6 @@ async function main() {
     stream: twapStream,
     ...CONFIG.referenceData
   });
-  const paperTrader = new PaperTrader(CONFIG.paperTrading);
 
   let prevSpotPrice = null;
   let prevCurrentPrice = null;
@@ -592,8 +596,8 @@ async function main() {
         ? (Number(poly.market?.liquidityNum) || Number(poly.market?.liquidity) || null)
         : null;
 
-      await paperTrader.settlePending();
-      const paperStatus = paperTrader.observe({
+      await tradingRuntime.settlePending();
+      const tradingStatus = tradingRuntime.observe({
         market: poly.ok ? poly.market : null,
         recommendation: rec,
         orderBooks: poly.ok ? poly.orderbook : null,
@@ -603,13 +607,14 @@ async function main() {
         regime: regimeInfo.regime,
         reference
       });
-      const paperSummary = paperTrader.getSummary();
-      const paperPnlColor = paperSummary.realized_pnl_usd > 0
+      const tradingSummary = tradingRuntime.getSummary();
+      const tradingPnlColor = tradingSummary.realized_pnl_usd > 0
         ? ANSI.green
-        : paperSummary.realized_pnl_usd < 0
+        : tradingSummary.realized_pnl_usd < 0
           ? ANSI.red
           : ANSI.gray;
-      const paperPnlSign = paperSummary.realized_pnl_usd > 0 ? "+" : "";
+      const tradingPnlSign = tradingSummary.realized_pnl_usd > 0 ? "+" : "";
+      const tradingReturnSign = tradingSummary.realized_return_pct > 0 ? "+" : "";
 
       const spotPrice = wsPrice ?? lastPrice;
       const currentPrice = reference.currentTwap === null ? null : Number(reference.currentTwap);
@@ -738,12 +743,12 @@ async function main() {
         "",
         sepLine(),
         "",
-        section("Paper Trading"),
-        kv("Status:", paperStatus.text),
-        kv("Trades:", `${paperSummary.total_trades} total | ${paperSummary.settled_trades} settled | ${paperSummary.pending_trades} awaiting`),
-        kv("Record:", `${paperSummary.wins}W / ${paperSummary.losses}L | ${formatNumber(paperSummary.win_rate_pct, 1)}%`),
-        kv("Realized PnL:", `${paperPnlColor}${paperPnlSign}$${formatNumber(paperSummary.realized_pnl_usd, 2)}${ANSI.reset}`),
-        kv("Pending Stake:", `$${formatNumber(paperSummary.pending_stake_usd, 2)}`),
+        section(tradingRuntime.sectionTitle),
+        kv("Status:", tradingStatus.text),
+        kv("Trades:", `${tradingSummary.total_trades} total | ${tradingSummary.settled_trades} settled | ${tradingSummary.pending_trades} awaiting`),
+        kv("Record:", `${tradingSummary.wins}W / ${tradingSummary.losses}L | ${formatNumber(tradingSummary.win_rate_pct, 1)}%`),
+        kv("Realized PnL:", `${tradingPnlColor}${tradingPnlSign}$${formatNumber(tradingSummary.realized_pnl_usd, 2)} (${tradingReturnSign}${formatNumber(tradingSummary.realized_return_pct, 1)}%)${ANSI.reset}`),
+        kv("Pending Stake:", `$${formatNumber(tradingSummary.pending_stake_usd, 2)}`),
         "",
         sepLine(),
         "",
@@ -782,4 +787,7 @@ async function main() {
   }
 }
 
-main();
+main().catch((error) => {
+  console.error(`Startup Error: ${error?.message ?? String(error)}`);
+  process.exitCode = 1;
+});

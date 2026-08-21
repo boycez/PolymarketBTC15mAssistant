@@ -1,3 +1,5 @@
+import { resolveTradingMode } from "./trading/mode.js";
+
 export const CONFIG = {
   symbol: "BTCUSDT",
   binanceBaseUrl: "https://api.binance.com",
@@ -15,8 +17,11 @@ export const CONFIG = {
   macdSlow: 26,
   macdSignal: 9,
 
+  trading: {
+    mode: resolveTradingMode()
+  },
+
   paperTrading: {
-    enabled: (process.env.PAPER_TRADING_ENABLED || "true").toLowerCase() === "true",
     strategy: process.env.PAPER_TRADE_STRATEGY || "TA_EDGE_V1_2_FOK",
     confirmationSeconds: Number(process.env.PAPER_TRADE_CONFIRMATION_SECONDS || 30),
     minRemainingMinutes: Number(process.env.PAPER_TRADE_MIN_REMAINING_MINUTES || 5),
@@ -27,6 +32,10 @@ export const CONFIG = {
     stakeUsd: Number(process.env.PAPER_TRADE_STAKE_USD || 10),
     settlementPollMs: Number(process.env.PAPER_TRADE_SETTLEMENT_POLL_MS || 30_000),
     filePath: process.env.PAPER_TRADE_FILE || "./logs/paper_trades.csv"
+  },
+
+  liveTrading: {
+    filePath: process.env.LIVE_TRADE_FILE || "./logs/live_trades.csv"
   },
 
   referenceData: {

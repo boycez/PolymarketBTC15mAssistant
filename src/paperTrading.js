@@ -478,6 +478,7 @@ export class PaperTrader {
     const wins = settledTrades.filter((trade) => tradeResult(trade) === "WIN").length;
     const losses = settledTrades.filter((trade) => tradeResult(trade) === "LOSE").length;
     const realizedPnl = settledTrades.reduce((sum, trade) => sum + (finiteNumber(trade.pnl) ?? 0), 0);
+    const settledStake = settledTrades.reduce((sum, trade) => sum + (finiteNumber(trade.stake_usd) ?? 0), 0);
     const settledPayout = settledTrades.reduce((sum, trade) => sum + (finiteNumber(trade.payout) ?? 0), 0);
     const pendingStake = pendingTrades.reduce((sum, trade) => sum + (finiteNumber(trade.stake_usd) ?? 0), 0);
 
@@ -489,8 +490,10 @@ export class PaperTrader {
       wins,
       losses,
       win_rate_pct: settledTrades.length ? (wins / settledTrades.length) * 100 : 0,
+      settled_stake_usd: settledStake,
       settled_payout_usd: settledPayout,
       realized_pnl_usd: realizedPnl,
+      realized_return_pct: settledStake > 0 ? (realizedPnl / settledStake) * 100 : 0,
       pending_stake_usd: pendingStake
     };
   }

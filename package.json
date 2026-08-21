@@ -5,6 +5,8 @@
   "private": true,
   "scripts": {
     "start": "node src/index.js",
+    "paper": "node src/index.js --mode=paper",
+    "live": "node src/index.js --mode=live",
     "test": "node --test"
   },
   "dependencies": {

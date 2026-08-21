@@ -206,9 +206,38 @@ Example:
 
 ## Run
 
+Paper trading is the default mode:
+
 ```bash
 npm start
 ```
+
+The explicit mode commands are:
+
+```bash
+npm run paper
+npm run live
+```
+
+You can also select a mode with `TRADING_MODE=paper|live` or
+`node src/index.js --mode=paper|live`. A CLI argument takes precedence over the
+environment variable.
+
+Live trading is intentionally fail-closed until its authenticated CLOB executor
+is implemented. `npm run live` exits before opening market streams, creating a
+trade log, or submitting an order. It never falls back to paper trading.
+
+The two modes use isolated fact logs:
+
+```text
+logs/paper_trades.csv
+logs/live_trades.csv
+```
+
+`PAPER_TRADE_FILE` and `LIVE_TRADE_FILE` can override these paths. The terminal
+uses the same trading summary area for both modes: `Paper Trading` shows
+simulated results, while the future `Live Trading` runtime will show only real
+positions, realized PnL, realized return, and pending stake from the live log.
 
 ## Paper trading
 
@@ -251,12 +280,12 @@ The `Paper Trade` line on the console shows one of these states:
 - `UP AWAITING_SETTLEMENT @ 42.0c`
 - `UP SETTLED (+$13.81)`
 
-The separate `PAPER TRADING` console section also shows total, settled and
-awaiting trades, wins and losses, win rate, realized PnL, and pending stake.
+The separate `Paper Trading` console section also shows total, settled and
+awaiting trades, wins and losses, win rate, realized PnL, realized return, and
+pending stake.
 
 Optional environment variables:
 
-- `PAPER_TRADING_ENABLED` (default: `true`)
 - `PAPER_TRADE_STRATEGY` (default: `TA_EDGE_V1_2_FOK`)
 - `PAPER_TRADE_CONFIRMATION_SECONDS` (default: `30`)
 - `PAPER_TRADE_MIN_REMAINING_MINUTES` (default: `5`)

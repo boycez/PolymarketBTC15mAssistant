@@ -102,7 +102,9 @@ test("records one paper trade after a stable signal", () => {
   assert.equal(summary.total_trades, 1);
   assert.equal(summary.pending_trades, 1);
   assert.equal(summary.pending_stake_usd, 10);
+  assert.equal(summary.settled_stake_usd, 0);
   assert.equal(summary.realized_pnl_usd, 0);
+  assert.equal(summary.realized_return_pct, 0);
 });
 
 test("resets confirmation when the recommendation disappears", () => {
@@ -258,8 +260,10 @@ test("settles a winning trade from the official resolved outcome", async () => {
   assert.equal(summary.pending_trades, 0);
   assert.equal(summary.wins, 1);
   assert.equal(summary.win_rate_pct, 100);
+  assert.equal(summary.settled_stake_usd, 10);
   assert.equal(summary.settled_payout_usd, 25);
   assert.equal(summary.realized_pnl_usd, 15);
+  assert.equal(summary.realized_return_pct, 150);
   assert.equal(summary.pending_stake_usd, 0);
 });
 
