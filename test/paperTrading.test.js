@@ -54,6 +54,15 @@ function eligibleInput(overrides = {}) {
     modelDown: 0.35,
     remainingMinutes: 8,
     regime: "TREND_UP",
+    reference: {
+      state: "READY",
+      tradingAllowed: true,
+      priceToBeatE18: "100000000000000000000000",
+      priceToBeat: "100000",
+      currentTwapE18: "100100000000000000000000",
+      currentTwap: "100100",
+      distance: 100
+    },
     ...overrides
   };
 }
@@ -84,6 +93,8 @@ test("records one paper trade after a stable signal", () => {
   assert.equal(trader.trades[0].execution_edge, 0.25);
   assert.equal(trader.trades[0].time_left_minutes, 8);
   assert.equal(trader.trades[0].regime, "TREND_UP");
+  assert.equal(trader.trades[0].reference_state, "READY");
+  assert.equal(trader.trades[0].twap_distance, 100);
   assert.equal(trader.trades[0].status, "AWAITING_SETTLEMENT");
   assert.equal(trader.trades[0].result, "PENDING");
 
@@ -118,6 +129,21 @@ test("does not trade during the early phase", () => {
   trader.observe({ ...input, nowMs: 0 });
   trader.observe({ ...input, nowMs: 60_000 });
 
+  assert.equal(trader.trades.length, 0);
+  assert.equal(trader.candidate, null);
+});
+
+test("blocks entry unless the official TWAP reference is READY", () => {
+  const trader = createTrader();
+  const input = eligibleInput({
+    reference: { state: "MISSED_WINDOW", tradingAllowed: false }
+  });
+
+  const first = trader.observe({ ...input, nowMs: 0 });
+  const second = trader.observe({ ...input, nowMs: 60_000 });
+
+  assert.equal(first.state, "BLOCKED");
+  assert.equal(second.text, "blocked: MISSED_WINDOW");
   assert.equal(trader.trades.length, 0);
   assert.equal(trader.candidate, null);
 });

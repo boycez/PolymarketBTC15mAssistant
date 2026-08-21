@@ -29,6 +29,12 @@ export const CONFIG = {
     filePath: process.env.PAPER_TRADE_FILE || "./logs/paper_trades.csv"
   },
 
+  referenceData: {
+    filePath: process.env.MARKET_REFERENCE_FILE || "./logs/market_references.csv",
+    captureGraceMs: Number(process.env.TWAP_CAPTURE_GRACE_MS || 5_000),
+    freshnessMs: Number(process.env.TWAP_FRESHNESS_MS || 5_000)
+  },
+
   polymarket: {
     marketSlug: process.env.POLYMARKET_SLUG || "",
     seriesId: process.env.POLYMARKET_SERIES_ID || "10192",

@@ -3,6 +3,7 @@ import { fetchKlines, fetchLastPrice } from "./data/binance.js";
 import { fetchChainlinkBtcUsd } from "./data/chainlink.js";
 import { startChainlinkPriceStream } from "./data/chainlinkWs.js";
 import { startPolymarketChainlinkPriceStream } from "./data/polymarketLiveWs.js";
+import { startPolymarketTwapStream } from "./data/polymarketTwapWs.js";
 import {
   fetchMarketBySlug,
   fetchLiveEventsBySeriesId,
@@ -24,6 +25,7 @@ import { startBinanceTradeStream } from "./data/binanceWs.js";
 import readline from "node:readline";
 import { applyGlobalProxyFromEnv } from "./net/proxy.js";
 import { PaperTrader } from "./paperTrading.js";
+import { ReferencePriceGate } from "./referencePrice.js";
 
 function countVwapCrosses(closes, vwapSeries, lookback) {
   if (closes.length < lookback || vwapSeries.length < lookback) return null;
@@ -406,11 +408,15 @@ async function main() {
   const binanceStream = startBinanceTradeStream({ symbol: CONFIG.symbol });
   const polymarketLiveStream = startPolymarketChainlinkPriceStream({});
   const chainlinkStream = startChainlinkPriceStream({});
+  const twapStream = startPolymarketTwapStream({});
+  const referenceGate = new ReferencePriceGate({
+    stream: twapStream,
+    ...CONFIG.referenceData
+  });
   const paperTrader = new PaperTrader(CONFIG.paperTrading);
 
   let prevSpotPrice = null;
   let prevCurrentPrice = null;
-  let priceToBeatState = { slug: null, value: null, setAtMs: null };
 
   const header = [
     "timestamp",
@@ -458,6 +464,7 @@ async function main() {
       const settlementLeftMin = settlementMs ? (settlementMs - Date.now()) / 60_000 : null;
 
       const timeLeftMin = settlementLeftMin ?? timing.remainingMinutes;
+      const reference = referenceGate.evaluate(poly.ok ? poly.market : null);
 
       const candles = klines1m;
       const closes = candles.map((c) => c.close);
@@ -593,7 +600,8 @@ async function main() {
         modelUp: timeAware.adjustedUp,
         modelDown: timeAware.adjustedDown,
         remainingMinutes: timeLeftMin,
-        regime: regimeInfo.regime
+        regime: regimeInfo.regime,
+        reference
       });
       const paperSummary = paperTrader.getSummary();
       const paperPnlColor = paperSummary.realized_pnl_usd > 0
@@ -604,28 +612,14 @@ async function main() {
       const paperPnlSign = paperSummary.realized_pnl_usd > 0 ? "+" : "";
 
       const spotPrice = wsPrice ?? lastPrice;
-      const currentPrice = chainlink?.price ?? null;
+      const currentPrice = reference.currentTwap === null ? null : Number(reference.currentTwap);
+      const priceToBeat = reference.priceToBeat === null ? null : Number(reference.priceToBeat);
       const marketSlug = poly.ok ? String(poly.market?.slug ?? "") : "";
-      const marketStartMs = poly.ok && poly.market?.eventStartTime ? new Date(poly.market.eventStartTime).getTime() : null;
-
-      if (marketSlug && priceToBeatState.slug !== marketSlug) {
-        priceToBeatState = { slug: marketSlug, value: null, setAtMs: null };
-      }
-
-      if (priceToBeatState.slug && priceToBeatState.value === null && currentPrice !== null) {
-        const nowMs = Date.now();
-        const okToLatch = marketStartMs === null ? true : nowMs >= marketStartMs;
-        if (okToLatch) {
-          priceToBeatState = { slug: priceToBeatState.slug, value: Number(currentPrice), setAtMs: nowMs };
-        }
-      }
-
-      const priceToBeat = priceToBeatState.slug === marketSlug ? priceToBeatState.value : null;
       const currentPriceBaseLine = colorPriceLine({
-        label: "CURRENT PRICE",
+        label: "CURRENT TWAP",
         price: currentPrice,
         prevPrice: prevCurrentPrice,
-        decimals: 2,
+        decimals: 6,
         prefix: "$"
       });
 
@@ -643,9 +637,9 @@ async function main() {
         ? `${ANSI.gray}-${ANSI.reset}`
         : `${ptbDeltaColor}${ptbDelta > 0 ? "+" : ptbDelta < 0 ? "-" : ""}$${Math.abs(ptbDelta).toFixed(2)}${ANSI.reset}`;
       const currentPriceValue = currentPriceBaseLine.split(": ")[1] ?? currentPriceBaseLine;
-      const currentPriceLine = kv("CURRENT PRICE:", `${currentPriceValue} (${ptbDeltaText})`);
+      const currentPriceLine = kv("CURRENT TWAP:", `${currentPriceValue} (${ptbDeltaText})`);
 
-      if (CONFIG.polymarket.dumpMarketSnapshots && poly.ok && poly.market && priceToBeatState.value === null) {
+      if (CONFIG.polymarket.dumpMarketSnapshots && poly.ok && poly.market && priceToBeat === null) {
         const slug = safeFileSlug(poly.market.slug || poly.market.id || "market");
         if (slug && !dumpedMarkets.has(slug)) {
           dumpedMarkets.add(slug);
@@ -675,6 +669,17 @@ async function main() {
 
       const titleLine = poly.ok ? `${poly.market?.question ?? "-"}` : "-";
       const marketLine = kv("Market:", poly.ok ? (poly.market?.slug ?? "-") : "-");
+      const referenceColor = reference.state === "READY"
+        ? ANSI.green
+        : reference.state === "ARMED" || reference.state === "SYNCING"
+          ? ANSI.yellow
+          : ANSI.red;
+      const referenceObserved = reference.currentObservedAtMs
+        ? new Date(reference.currentObservedAtMs).toISOString().slice(11, 23)
+        : "-";
+      const referenceFreshness = reference.freshnessMs === null
+        ? "-"
+        : `${(reference.freshnessMs / 1_000).toFixed(1)}s`;
 
       const timeColor = timeLeftMin >= 10 && timeLeftMin <= 15
         ? ANSI.green
@@ -683,7 +688,7 @@ async function main() {
           : timeLeftMin >= 0 && timeLeftMin < 5
             ? ANSI.red
             : ANSI.reset;
-          const timeLeftLine = `⏱ Time left: ${timeColor}${fmtTimeLeft(timeLeftMin)}${ANSI.reset}`;
+      const timeLeftLine = `⏱ Time left: ${timeColor}${fmtTimeLeft(timeLeftMin)}${ANSI.reset}`;
 
       const polyTimeLeftColor = settlementLeftMin !== null
         ? (settlementLeftMin >= 10 && settlementLeftMin <= 15
@@ -711,11 +716,21 @@ async function main() {
         "",
         sepLine(),
         "",
+        section("REFERENCE DATA"),
+        kv("State:", `${referenceColor}${reference.state}${ANSI.reset}`),
+        kv("Reason:", reference.reason),
+        kv("Source:", "Chainlink BTC/USD TWAP 60s"),
+        kv("Observed UTC:", referenceObserved),
+        kv("Freshness:", referenceFreshness),
+        priceToBeat !== null ? kv("PRICE TO BEAT:", `$${formatNumber(priceToBeat, 6)}`) : kv("PRICE TO BEAT:", `${ANSI.gray}unavailable${ANSI.reset}`),
+        currentPriceLine,
+        kv("Trading gate:", reference.tradingAllowed ? `${ANSI.green}OPEN${ANSI.reset}` : `${ANSI.red}CLOSED${ANSI.reset}`),
+        "",
+        sepLine(),
+        "",
         kv("POLYMARKET:", polyHeaderValue),
         liquidity !== null ? kv("Liquidity:", formatNumber(liquidity, 0)) : null,
         settlementLeftMin !== null ? kv("Time left:", `${polyTimeLeftColor}${fmtTimeLeft(settlementLeftMin)}${ANSI.reset}`) : null,
-        priceToBeat !== null ? kv("PRICE TO BEAT: ", `$${formatNumber(priceToBeat, 0)}`) : kv("PRICE TO BEAT: ", `${ANSI.gray}-${ANSI.reset}`),
-        currentPriceLine,
         "",
         sepLine(),
         "",
@@ -755,7 +770,7 @@ async function main() {
         marketDown,
         edge.edgeUp,
         edge.edgeDown,
-        rec.action === "ENTER" ? `${rec.side}:${rec.phase}:${rec.strength}` : "NO_TRADE"
+        reference.tradingAllowed && rec.action === "ENTER" ? `${rec.side}:${rec.phase}:${rec.strength}` : "NO_TRADE"
       ]);
     } catch (err) {
       console.log("────────────────────────────");

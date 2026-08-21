@@ -32,6 +32,12 @@ const COLUMNS = [
   "signal_confirmed_seconds",
   "time_left_minutes",
   "regime",
+  "reference_state",
+  "price_to_beat_e18",
+  "price_to_beat",
+  "current_twap_e18",
+  "current_twap",
+  "twap_distance",
   "phase",
   "strength",
   "status",
@@ -273,6 +279,7 @@ export class PaperTrader {
     modelDown,
     remainingMinutes,
     regime,
+    reference,
     nowMs = Date.now()
   }) {
     if (!this.enabled || !market?.slug) return this.getStatus(market?.slug, nowMs);
@@ -282,6 +289,12 @@ export class PaperTrader {
     if (existingTrade) {
       this.candidate = null;
       return this.getStatus(marketSlug, nowMs);
+    }
+
+    if (reference?.tradingAllowed !== true) {
+      this.candidate = null;
+      const referenceState = reference?.state ?? "REFERENCE_UNAVAILABLE";
+      return { state: "BLOCKED", text: `blocked: ${referenceState}` };
     }
 
     const side = String(recommendation?.side ?? "").toUpperCase();
@@ -378,6 +391,12 @@ export class PaperTrader {
       signal_confirmed_seconds: this.confirmationMs / 1_000,
       time_left_minutes: remainingMinutes,
       regime: String(regime ?? ""),
+      reference_state: reference.state,
+      price_to_beat_e18: reference.priceToBeatE18,
+      price_to_beat: reference.priceToBeat,
+      current_twap_e18: reference.currentTwapE18,
+      current_twap: reference.currentTwap,
+      twap_distance: reference.distance,
       phase: String(recommendation.phase ?? ""),
       strength: String(recommendation.strength ?? ""),
       status: "AWAITING_SETTLEMENT",
