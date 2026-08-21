@@ -54,6 +54,7 @@ const ANSI = {
   yellow: "\x1b[33m",
   lightRed: "\x1b[91m",
   gray: "\x1b[90m",
+  softWhite: "\x1b[37m",
   white: "\x1b[97m",
   dim: "\x1b[2m"
 };
@@ -116,7 +117,7 @@ function kv(label, value) {
 }
 
 function section(title) {
-  return `${ANSI.gray}${String(title).toUpperCase()}${ANSI.reset}`;
+  return `${ANSI.softWhite}${String(title).toUpperCase()}${ANSI.reset}`;
 }
 
 function colorPriceLine({ label, price, prevPrice, decimals = 0, prefix = "" }) {
