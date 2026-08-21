@@ -12,7 +12,7 @@ It combines:
 
 ## Requirements
 
-- Node.js **18+** (https://nodejs.org/en)
+- Node.js **24+** (required by the official `@polymarket/client` SDK)
 - npm (comes with Node)
 
 
@@ -212,7 +212,14 @@ Paper trading is the default mode:
 npm start
 ```
 
-The explicit mode commands are:
+The preferred explicit mode commands are:
+
+```bash
+npm start paper
+npm start live
+```
+
+The npm script aliases remain available:
 
 ```bash
 npm run paper
@@ -223,9 +230,9 @@ You can also select a mode with `TRADING_MODE=paper|live` or
 `node src/index.js --mode=paper|live`. A CLI argument takes precedence over the
 environment variable.
 
-Live trading is intentionally fail-closed until its authenticated CLOB executor
-is implemented. `npm run live` exits before opening market streams, creating a
-trade log, or submitting an order. It never falls back to paper trading.
+Live trading uses the official `@polymarket/client` SDK. `npm start live` never
+falls back to paper trading. It authenticates and runs startup checks, but order
+submission remains stopped until the user manually enables it after startup.
 
 The two modes use isolated fact logs:
 
@@ -234,10 +241,114 @@ logs/paper_trades.csv
 logs/live_trades.csv
 ```
 
-`PAPER_TRADE_FILE` and `LIVE_TRADE_FILE` can override these paths. The terminal
-uses the same trading summary area for both modes: `Paper Trading` shows
-simulated results, while the future `Live Trading` runtime will show only real
-positions, realized PnL, realized return, and pending stake from the live log.
+`PAPER_TRADE_FILE` can override the Paper path. The Live fact log is fixed at
+`logs/live_trades.csv` so its audit location cannot be changed by user trading
+configuration. It contains actual SDK order IDs, exchange status, filled
+collateral and shares, plus rejected or ambiguous attempts. Never treat the
+signal log as proof of an exchange fill.
+
+## Live trading
+
+Use a dedicated, minimally funded Polymarket signer. Never commit or paste its
+private key into source files, chat, shell history, screenshots, environment
+variables, or logs. In local Live mode, the program requests it directly from
+the interactive terminal with input echo disabled. The key is kept only in
+process memory for the lifetime of that run.
+
+Non-secret local settings are read from:
+
+```text
+config/live.local.json
+```
+
+This file is ignored by Git and must not contain a private key. Start from the
+tracked `config/live.example.json` template. Set `LIVE_CONFIG_FILE` to use a
+different path. Environment variables override values from the JSON file, which
+in turn override the built-in conservative defaults.
+
+The local file contains only user-controlled stake, session, and runtime
+settings. Signal confirmation, entry timing, minimum edge, slippage, and trend
+alignment belong to the versioned strategy in
+`src/trading/strategy.js`; they are shared by Paper and Live and cannot be
+changed from the local config.
+
+Live startup displays this prompt before opening the dashboard:
+
+```text
+Polymarket signer private key (hidden):
+```
+
+Paste or type a `0x`-prefixed 32-byte private key and press `Enter`. No key
+characters are displayed. Press `Esc` or `Ctrl+C` to cancel. Non-interactive
+stdin fails closed because it cannot securely request the key.
+
+The wallet address is not user-configurable. The official SDK derives the
+signer's deterministic Deposit Wallet during authentication. The terminal shows
+the resulting `client.account.wallet` and wallet type in masked form so the
+actual execution account can be verified before automatic orders are enabled.
+
+Start Live authentication and preflight with:
+
+```bash
+npm start live
+```
+
+After the checks pass, verify the masked trading wallet and wallet type. The
+automatic-order control still starts as `Stopped`; do not press `A` until the
+displayed account identity and collateral balance are the ones you expect.
+
+Before an armed process opens market streams, it fails closed unless all startup
+checks pass:
+
+- The official Polymarket geoblock endpoint reports that trading is allowed.
+- The account is not in closed-only mode.
+- The collateral balance covers the configured stake.
+- The stake is positive and does not exceed the hard maximum.
+- The per-process trade limit is a positive integer.
+
+After startup, Live Trading always begins in `Stopped` state. In an interactive
+terminal:
+
+- Press `A` to request enabling automatic orders.
+- Review the displayed stake, session limit, slippage cap, and stop action.
+- Press `Enter` to confirm, or `Esc` to cancel and remain stopped.
+- Press `S` at any time to stop new orders and call `cancelAll()` for open CLOB
+  orders.
+- Press `Ctrl+C` to stop, cancel open orders, and exit.
+
+The enabled state is never persisted across restarts. If stdin or stdout is not
+an interactive TTY, automatic orders remain stopped. Stopping does not sell or
+otherwise close positions that have already filled; those positions continue to
+settlement.
+
+For a new wallet, run once with `LIVE_TRADING_SETUP_APPROVALS=true`. This calls
+the SDK's on-chain/gasless trading approval workflow during startup. Review the
+wallet and amount first, then return the setting to `false` for normal runs.
+
+Live entries preserve the paper strategy gates: exact reference TWAP readiness,
+5-10 minutes remaining, 30-second signal confirmation, trend
+alignment, minimum executable edge, full local book depth, tick size, minimum
+order size, and maximum slippage. The actual request is an immediate FOK buy
+with `maxSpend` equal to the all-in stake. A market is locked after any submission
+attempt so an ambiguous timeout cannot cause a duplicate order.
+
+Safety settings:
+
+- `LIVE_TRADE_STAKE_USD` (default: `5`)
+- `LIVE_TRADE_MAX_TRADES_PER_SESSION` (default: `1`)
+- `LIVE_TRADING_CANCEL_ON_EXIT` (default: `true`)
+- `LIVE_TRADING_SETUP_APPROVALS` (default: `false`)
+- `LIVE_TRADE_SETTLEMENT_POLL_MS` (default: `30000`)
+
+`LIVE_TRADE_HARD_MAX_STAKE_USD` is a deployment-level hard cap (default: `10`).
+It is intentionally unavailable in `live.local.json`. A configured stake above
+this cap causes startup to fail instead of being silently reduced.
+
+With cancel-on-exit enabled, `SIGINT` and `SIGTERM` call the official SDK's
+`cancelAll()` before exit. FOK entries should never rest, but this provides an
+account-wide kill switch for any open CLOB orders. A forced `SIGKILL`, machine
+failure, or network outage cannot run this handler; account monitoring remains
+necessary for real funds.
 
 ## Paper trading
 

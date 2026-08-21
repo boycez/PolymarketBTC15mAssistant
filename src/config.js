@@ -1,4 +1,53 @@
+import fs from "node:fs";
+
 import { resolveTradingMode } from "./trading/mode.js";
+import { TA_EDGE_V1_2_FOK } from "./trading/strategy.js";
+
+const LIVE_CONFIG_KEYS = new Set([
+  "stakeUsd",
+  "maxTradesPerSession",
+  "cancelOnExit",
+  "setupApprovals",
+  "settlementPollMs"
+]);
+
+const tradingMode = resolveTradingMode();
+const liveConfigPath = process.env.LIVE_CONFIG_FILE || "./config/live.local.json";
+
+function loadLocalLiveConfig() {
+  if (tradingMode !== "live" || !fs.existsSync(liveConfigPath)) return {};
+
+  let value;
+  try {
+    value = JSON.parse(fs.readFileSync(liveConfigPath, "utf8"));
+  } catch (error) {
+    throw new Error(`Cannot parse Live config ${liveConfigPath}: ${error?.message ?? String(error)}`);
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Live config ${liveConfigPath} must contain a JSON object.`);
+  }
+  const unknownKeys = Object.keys(value).filter((key) => !LIVE_CONFIG_KEYS.has(key));
+  if (unknownKeys.length) {
+    throw new Error(`Unknown Live config field${unknownKeys.length === 1 ? "" : "s"}: ${unknownKeys.join(", ")}`);
+  }
+  return value;
+}
+
+const localLiveConfig = loadLocalLiveConfig();
+
+function liveValue(envName, configKey, defaultValue) {
+  return process.env[envName] === undefined
+    ? (localLiveConfig[configKey] ?? defaultValue)
+    : process.env[envName];
+}
+
+function liveNumber(envName, configKey, defaultValue) {
+  return Number(liveValue(envName, configKey, defaultValue));
+}
+
+function liveBoolean(envName, configKey, defaultValue) {
+  return String(liveValue(envName, configKey, defaultValue)).toLowerCase() === "true";
+}
 
 export const CONFIG = {
   symbol: "BTCUSDT",
@@ -18,24 +67,28 @@ export const CONFIG = {
   macdSignal: 9,
 
   trading: {
-    mode: resolveTradingMode()
+    mode: tradingMode
   },
 
   paperTrading: {
-    strategy: process.env.PAPER_TRADE_STRATEGY || "TA_EDGE_V1_2_FOK",
-    confirmationSeconds: Number(process.env.PAPER_TRADE_CONFIRMATION_SECONDS || 30),
-    minRemainingMinutes: Number(process.env.PAPER_TRADE_MIN_REMAINING_MINUTES || 5),
-    maxRemainingMinutes: Number(process.env.PAPER_TRADE_MAX_REMAINING_MINUTES || 10),
-    minExecutionEdge: Number(process.env.PAPER_TRADE_MIN_EXECUTION_EDGE || 0.1),
-    maxSlippage: Number(process.env.PAPER_TRADE_MAX_SLIPPAGE || 0.02),
-    requireTrendAlignment: (process.env.PAPER_TRADE_REQUIRE_TREND_ALIGNMENT || "true").toLowerCase() === "true",
+    ...TA_EDGE_V1_2_FOK,
     stakeUsd: Number(process.env.PAPER_TRADE_STAKE_USD || 10),
     settlementPollMs: Number(process.env.PAPER_TRADE_SETTLEMENT_POLL_MS || 30_000),
     filePath: process.env.PAPER_TRADE_FILE || "./logs/paper_trades.csv"
   },
 
   liveTrading: {
-    filePath: process.env.LIVE_TRADE_FILE || "./logs/live_trades.csv"
+    enabled: tradingMode === "live",
+    geoblockUrl: process.env.POLYMARKET_GEOBLOCK_URL || "https://polymarket.com/api/geoblock",
+    setupApprovals: liveBoolean("LIVE_TRADING_SETUP_APPROVALS", "setupApprovals", false),
+    cancelOnExit: liveBoolean("LIVE_TRADING_CANCEL_ON_EXIT", "cancelOnExit", true),
+    ...TA_EDGE_V1_2_FOK,
+    stakeUsd: liveNumber("LIVE_TRADE_STAKE_USD", "stakeUsd", 5),
+    maxStakeUsd: Number(process.env.LIVE_TRADE_HARD_MAX_STAKE_USD || 10),
+    maxTradesPerSession: liveNumber("LIVE_TRADE_MAX_TRADES_PER_SESSION", "maxTradesPerSession", 1),
+    settlementPollMs: liveNumber("LIVE_TRADE_SETTLEMENT_POLL_MS", "settlementPollMs", 30_000),
+    filePath: "./logs/live_trades.csv",
+    configPath: liveConfigPath
   },
 
   referenceData: {

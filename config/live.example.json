@@ -1,0 +1,7 @@
+{
+  "stakeUsd": 5,
+  "maxTradesPerSession": 1,
+  "cancelOnExit": true,
+  "setupApprovals": false,
+  "settlementPollMs": 30000
+}

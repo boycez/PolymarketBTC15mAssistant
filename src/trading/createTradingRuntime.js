@@ -1,4 +1,5 @@
 import { PaperTrader } from "../paperTrading.js";
+import { LiveTrader } from "../liveTrading.js";
 import { TRADING_MODES } from "./mode.js";
 
 class TradingRuntime {
@@ -9,8 +10,8 @@ class TradingRuntime {
     this.trader = trader;
   }
 
-  observe(input) {
-    return this.trader.observe(input);
+  async observe(input) {
+    return await this.trader.observe(input);
   }
 
   settlePending(nowMs) {
@@ -24,9 +25,38 @@ class TradingRuntime {
   getSummary() {
     return this.trader.getSummary();
   }
+
+  async cancelAll() {
+    if (typeof this.trader.cancelAll !== "function") return null;
+    return await this.trader.cancelAll();
+  }
+
+  requestArm() {
+    return this.trader.requestArm?.() ?? false;
+  }
+
+  confirmArm() {
+    return this.trader.confirmArm?.() ?? false;
+  }
+
+  cancelArm() {
+    return this.trader.cancelArm?.() ?? false;
+  }
+
+  async disarm() {
+    return await (this.trader.disarm?.() ?? false);
+  }
+
+  getControlState() {
+    return this.trader.getControlState?.() ?? { state: "UNAVAILABLE", text: "Unavailable" };
+  }
+
+  getAccountIdentity() {
+    return this.trader.getAccountIdentity?.() ?? null;
+  }
 }
 
-export function createTradingRuntime({ mode, paperConfig = {}, liveConfig = {} }) {
+export async function createTradingRuntime({ mode, paperConfig = {}, liveConfig = {} }) {
   if (mode === TRADING_MODES.PAPER) {
     const trader = new PaperTrader({ ...paperConfig, enabled: true });
     return new TradingRuntime({
@@ -38,10 +68,13 @@ export function createTradingRuntime({ mode, paperConfig = {}, liveConfig = {} }
   }
 
   if (mode === TRADING_MODES.LIVE) {
-    const logFilePath = liveConfig.filePath ?? "./logs/live_trades.csv";
-    throw new Error(
-      `Live trading is not implemented. No orders were submitted. Future live trades will be stored in ${logFilePath}.`
-    );
+    const trader = await LiveTrader.create(liveConfig);
+    return new TradingRuntime({
+      mode,
+      sectionTitle: "Live Trading",
+      logFilePath: trader.filePath,
+      trader
+    });
   }
 
   throw new Error(`Unsupported trading mode "${mode}".`);

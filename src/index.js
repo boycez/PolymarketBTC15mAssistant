@@ -24,6 +24,7 @@ import { appendCsvRow, formatNumber, formatPct, getCandleWindowTiming, sleep } f
 import { startBinanceTradeStream } from "./data/binanceWs.js";
 import { applyGlobalProxyFromEnv } from "./net/proxy.js";
 import { ReferencePriceGate } from "./referencePrice.js";
+import { acquireLivePrivateKey } from "./security/terminalSecret.js";
 import { createTradingRuntime } from "./trading/createTradingRuntime.js";
 
 function countVwapCrosses(closes, vwapSeries, lookback) {
@@ -70,6 +71,7 @@ function sepLine(ch = "─") {
 }
 
 let alternateScreenActive = false;
+let terminalInputCleanup = null;
 
 function restoreTerminalScreen() {
   if (!alternateScreenActive) return;
@@ -78,6 +80,55 @@ function restoreTerminalScreen() {
 }
 
 process.once("exit", restoreTerminalScreen);
+
+function restoreTerminalInput() {
+  if (!terminalInputCleanup) return;
+  terminalInputCleanup();
+  terminalInputCleanup = null;
+}
+
+process.once("exit", restoreTerminalInput);
+
+function startLiveKeyboardControls({ runtime, onShutdown }) {
+  if (runtime.mode !== "live" || !process.stdin?.isTTY || !process.stdout?.isTTY) return false;
+
+  let inputBusy = false;
+  const onData = (key) => {
+    if (key === "\u0003") {
+      void onShutdown("SIGINT");
+      return;
+    }
+    if (key === "\r" || key === "\n") {
+      runtime.confirmArm();
+      return;
+    }
+    if (key === "\u001b") {
+      runtime.cancelArm();
+      return;
+    }
+    if (String(key).toLowerCase() === "a") {
+      runtime.requestArm();
+      return;
+    }
+    if (String(key).toLowerCase() === "s" && !inputBusy) {
+      inputBusy = true;
+      void runtime.disarm().finally(() => {
+        inputBusy = false;
+      });
+    }
+  };
+
+  process.stdin.setRawMode(true);
+  process.stdin.setEncoding("utf8");
+  process.stdin.resume();
+  process.stdin.on("data", onData);
+  terminalInputCleanup = () => {
+    process.stdin.off("data", onData);
+    if (process.stdin.isTTY) process.stdin.setRawMode(false);
+    process.stdin.pause();
+  };
+  return true;
+}
 
 function renderScreen(text) {
   if (process.stdout?.isTTY) {
@@ -108,6 +159,11 @@ function centerText(text, width) {
   const left = Math.floor((width - visible) / 2);
   const right = width - visible - left;
   return " ".repeat(left) + text + " ".repeat(right);
+}
+
+function maskAddress(value) {
+  const address = String(value ?? "");
+  return address.length >= 12 ? `${address.slice(0, 6)}...${address.slice(-4)}` : "-";
 }
 
 const LABEL_W = 18;
@@ -418,11 +474,36 @@ async function fetchPolymarketSnapshot() {
 }
 
 async function main() {
-  const tradingRuntime = createTradingRuntime({
+  const livePrivateKey = await acquireLivePrivateKey({
+    mode: CONFIG.trading.mode,
+    enabled: CONFIG.liveTrading.enabled
+  });
+  const tradingRuntime = await createTradingRuntime({
     mode: CONFIG.trading.mode,
     paperConfig: CONFIG.paperTrading,
-    liveConfig: CONFIG.liveTrading
+    liveConfig: { ...CONFIG.liveTrading, privateKey: livePrivateKey }
   });
+  let shuttingDown = false;
+  const shutdown = async (signal) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    restoreTerminalInput();
+    restoreTerminalScreen();
+    try {
+      if (CONFIG.trading.mode === "live" && CONFIG.liveTrading.enabled && CONFIG.liveTrading.cancelOnExit) {
+        await tradingRuntime.cancelAll();
+        console.log(`Live kill switch completed on ${signal}: all open orders canceled.`);
+      }
+    } catch (error) {
+      console.error(`Live kill switch failed on ${signal}: ${error?.message ?? String(error)}`);
+      process.exitCode = 1;
+    } finally {
+      process.exit();
+    }
+  };
+  process.once("SIGINT", () => void shutdown("SIGINT"));
+  process.once("SIGTERM", () => void shutdown("SIGTERM"));
+  const liveKeyboardEnabled = startLiveKeyboardControls({ runtime: tradingRuntime, onShutdown: shutdown });
   const binanceStream = startBinanceTradeStream({ symbol: CONFIG.symbol });
   const polymarketLiveStream = startPolymarketChainlinkPriceStream({});
   const chainlinkStream = startChainlinkPriceStream({});
@@ -610,8 +691,9 @@ async function main() {
         : null;
 
       await tradingRuntime.settlePending();
-      const tradingStatus = tradingRuntime.observe({
+      const tradingStatus = await tradingRuntime.observe({
         market: poly.ok ? poly.market : null,
+        tokens: poly.ok ? poly.tokens : null,
         recommendation: rec,
         orderBooks: poly.ok ? poly.orderbook : null,
         modelUp: timeAware.adjustedUp,
@@ -711,6 +793,20 @@ async function main() {
         return `BUY ${rec.side}: ${rec.phase} ${rec.strength}`;
       })();
       const tradingMode = tradingRuntime.mode === "live" ? "Live" : "Paper";
+      const tradingAccount = tradingRuntime.getAccountIdentity();
+      const tradingControl = tradingRuntime.getControlState();
+      const tradingControlColor = tradingControl.state === "ARMED"
+        ? ANSI.green
+        : tradingControl.state === "PENDING_CONFIRMATION"
+          ? ANSI.yellow
+          : ANSI.red;
+      const tradingControlHelp = tradingControl.state === "PENDING_CONFIRMATION"
+        ? "Enter confirm | Esc cancel | S stop"
+        : tradingControl.state === "UNAVAILABLE"
+          ? "Live controls unavailable"
+        : liveKeyboardEnabled
+          ? "A enable | S stop"
+          : "Interactive terminal required";
 
       const timeColor = timeLeftMin >= 10 && timeLeftMin <= 15
         ? ANSI.green
@@ -756,7 +852,8 @@ async function main() {
         "",
         kv("Mode:", tradingMode),
         kv("Reference State:", `${referenceColor}${reference.state}${ANSI.reset}`),
-        kv("Trading Gate:", reference.tradingAllowed ? `${ANSI.green}OPEN${ANSI.reset}` : `${ANSI.red}CLOSED${ANSI.reset}`),
+        kv(tradingRuntime.mode === "live" ? "System Gate:" : "Trading Gate:", reference.tradingAllowed ? `${ANSI.green}OPEN${ANSI.reset}` : `${ANSI.red}CLOSED${ANSI.reset}`),
+        tradingRuntime.mode === "live" ? kv("Auto Orders:", `${tradingControlColor}${tradingControl.text}${ANSI.reset}`) : null,
         kv("Freshness:", referenceFreshness),
         kv("Reason:", reference.reason),
         kv("Observed UTC:", referenceObserved),
@@ -767,6 +864,13 @@ async function main() {
         section(tradingRuntime.sectionTitle),
         "",
         kv("Status:", tradingStatus.text),
+        tradingRuntime.mode === "live" && tradingAccount?.wallet ? kv("Trading Wallet:", maskAddress(tradingAccount.wallet)) : null,
+        tradingRuntime.mode === "live" && tradingAccount?.walletType ? kv("Wallet Type:", tradingAccount.walletType) : null,
+        tradingRuntime.mode === "live" ? kv("Control:", tradingControlHelp) : null,
+        tradingControl.state === "PENDING_CONFIRMATION" ? kv("Stake:", `$${formatNumber(CONFIG.liveTrading.stakeUsd, 2)}`) : null,
+        tradingControl.state === "PENDING_CONFIRMATION" ? kv("Session Limit:", `${CONFIG.liveTrading.maxTradesPerSession} trade${CONFIG.liveTrading.maxTradesPerSession === 1 ? "" : "s"}`) : null,
+        tradingControl.state === "PENDING_CONFIRMATION" ? kv("Max Slippage:", `${formatNumber(CONFIG.liveTrading.maxSlippage * 100, 1)}%`) : null,
+        tradingControl.state === "PENDING_CONFIRMATION" ? kv("Stop Action:", "block new orders and cancel open orders") : null,
         kv("Trades:", `${tradingSummary.total_trades} total | ${tradingSummary.settled_trades} settled | ${tradingSummary.pending_trades} awaiting`),
         kv("Record:", `${tradingSummary.wins}W / ${tradingSummary.losses}L | ${formatNumber(tradingSummary.win_rate_pct, 1)}%`),
         kv("Realized PnL:", `${tradingPnlColor}${tradingPnlSign}$${formatNumber(tradingSummary.realized_pnl_usd, 2)} (${tradingReturnSign}${formatNumber(tradingSummary.realized_return_pct, 1)}%)${ANSI.reset}`),

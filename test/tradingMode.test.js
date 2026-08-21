@@ -12,6 +12,8 @@ test("reads trading mode from the environment", () => {
 });
 
 test("CLI trading mode overrides the environment", () => {
+  assert.equal(resolveTradingMode({ argv: ["live"], env: { TRADING_MODE: "paper" } }), "live");
+  assert.equal(resolveTradingMode({ argv: ["paper"], env: { TRADING_MODE: "live" } }), "paper");
   assert.equal(resolveTradingMode({ argv: ["--mode=paper"], env: { TRADING_MODE: "live" } }), "paper");
   assert.equal(resolveTradingMode({ argv: ["--mode", "live"], env: {} }), "live");
 });
@@ -19,6 +21,10 @@ test("CLI trading mode overrides the environment", () => {
 test("rejects an unsupported trading mode", () => {
   assert.throws(
     () => resolveTradingMode({ argv: ["--mode=test"], env: {} }),
+    /Expected "paper" or "live"/
+  );
+  assert.throws(
+    () => resolveTradingMode({ argv: ["lvie"], env: {} }),
     /Expected "paper" or "live"/
   );
 });

@@ -8,6 +8,10 @@ export function resolveTradingMode({ argv = process.argv.slice(2), env = process
 
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
+    if (!argument.startsWith("-")) {
+      cliMode = argument;
+      break;
+    }
     if (argument.startsWith("--mode=")) {
       cliMode = argument.slice("--mode=".length);
       break;
