@@ -399,10 +399,24 @@ allow awaiting trades to be settled.
 
 The `Paper Trade` line on the console shows one of these states:
 
-- `waiting for stable signal`
+- `waiting: model probability below 60.0%`
+- `waiting: outside entry window (12.0m remaining)`
+- `waiting: UP requires TREND_UP`
+- `waiting: execution edge 7.2% < 10.0%`
 - `UP confirming 18/30s`
 - `UP AWAITING_SETTLEMENT @ 42.0c`
 - `UP SETTLED (+$13.81)`
+
+The same specific gate reasons are used in Live mode. For later threshold
+analysis, each distinct gate category is recorded once per market and mode in:
+
+```text
+logs/strategy_gate_events.csv
+```
+
+This log includes the model probabilities, normalized market probabilities,
+quoted edges, regime, remaining time, recommendation, and final gate reason. It
+does not change the strategy or record credentials.
 
 The separate `Paper Trading` console section also shows total, settled and
 awaiting trades, wins and losses, win rate, realized PnL, realized return, and
@@ -420,6 +434,10 @@ Optional environment variables:
 - `PAPER_TRADE_STAKE_USD` (default: `10`)
 - `PAPER_TRADE_SETTLEMENT_POLL_MS` (default: `30000`)
 - `PAPER_TRADE_FILE` (default: `./logs/paper_trades.csv`)
+
+Strategy overrides are parsed at startup. Invalid numbers, malformed booleans,
+an inverted remaining-time window, or edge/slippage values outside `0` to `1`
+cause startup to fail instead of silently changing trading behavior.
 
 Each paper trade also records its strategy, execution details, confirmation
 duration, remaining time, and detected regime for later analysis. The simulator

@@ -34,6 +34,14 @@ test("creates a paper runtime with the shared trading contract", async () => {
   assert.equal(runtime.mode, "paper");
   assert.equal(runtime.sectionTitle, "Paper Trading");
   assert.equal(runtime.logFilePath, filePath);
+  assert.deepEqual(runtime.getStrategyConstraints(), {
+    confirmationSeconds: 30,
+    minRemainingMinutes: 5,
+    maxRemainingMinutes: 10,
+    minExecutionEdge: 0.1,
+    maxSlippage: 0.02,
+    requireTrendAlignment: true
+  });
   assert.equal(typeof runtime.observe, "function");
   assert.equal(typeof runtime.settlePending, "function");
   assert.equal(typeof runtime.getStatus, "function");

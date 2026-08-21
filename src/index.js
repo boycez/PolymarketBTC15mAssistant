@@ -26,6 +26,7 @@ import { applyGlobalProxyFromEnv } from "./net/proxy.js";
 import { ReferencePriceGate } from "./referencePrice.js";
 import { acquireLivePrivateKey, acquireLiveRelayerApiKey } from "./security/terminalSecret.js";
 import { createTradingRuntime } from "./trading/createTradingRuntime.js";
+import { formatRecommendationReason, strategyGateCategory } from "./trading/strategy.js";
 
 function countVwapCrosses(closes, vwapSeries, lookback) {
   if (closes.length < lookback || vwapSeries.length < lookback) return null;
@@ -279,6 +280,7 @@ function parsePriceToBeat(market) {
 }
 
 const dumpedMarkets = new Set();
+const loggedStrategyGates = new Set();
 
 function safeFileSlug(x) {
   return String(x ?? "")
@@ -538,6 +540,21 @@ async function main() {
     "edge_down",
     "recommendation"
   ];
+  const strategyGateHeader = [
+    "timestamp",
+    "mode",
+    "market_slug",
+    "time_left_min",
+    "regime",
+    "recommendation",
+    "model_up",
+    "model_down",
+    "market_up",
+    "market_down",
+    "quoted_edge_up",
+    "quoted_edge_down",
+    "gate_reason"
+  ];
 
   while (true) {
     const timing = getCandleWindowTiming(CONFIG.candleWindowMinutes);
@@ -788,14 +805,15 @@ async function main() {
         ? "-"
         : `${(reference.freshnessMs / 1_000).toFixed(1)}s`;
 
+      const strategyConstraints = tradingRuntime.getStrategyConstraints();
       const recommendationText = (() => {
         if (!reference.tradingAllowed) return `NO TRADE: reference ${reference.state}`;
-        if (rec.action !== "ENTER") return `NO TRADE: ${String(rec.reason ?? "no signal").replaceAll("_", " ")}`;
-        if (timeLeftMin < CONFIG.paperTrading.minRemainingMinutes || timeLeftMin > CONFIG.paperTrading.maxRemainingMinutes) {
+        if (rec.action !== "ENTER") return `NO TRADE: ${formatRecommendationReason(rec.reason)}`;
+        if (timeLeftMin < strategyConstraints.minRemainingMinutes || timeLeftMin > strategyConstraints.maxRemainingMinutes) {
           return "NO TRADE: outside entry window";
         }
         const expectedRegime = rec.side === "UP" ? "TREND_UP" : "TREND_DOWN";
-        if (CONFIG.paperTrading.requireTrendAlignment && regimeInfo.regime !== expectedRegime) {
+        if (strategyConstraints.requireTrendAlignment && regimeInfo.regime !== expectedRegime) {
           return `NO TRADE: ${rec.side} requires ${expectedRegime}`;
         }
         return `BUY ${rec.side}: ${rec.phase} ${rec.strength}`;
@@ -917,6 +935,29 @@ async function main() {
         edge.edgeDown,
         reference.tradingAllowed && rec.action === "ENTER" ? `${rec.side}:${rec.phase}:${rec.strength}` : "NO_TRADE"
       ]);
+
+      if (marketSlug && tradingStatus.state === "WAITING" && tradingStatus.text.startsWith("waiting:")) {
+        const gateReason = tradingStatus.text.slice("waiting:".length).trim();
+        const gateKey = `${tradingRuntime.mode}:${marketSlug}:${strategyGateCategory(gateReason)}`;
+        if (!loggedStrategyGates.has(gateKey)) {
+          loggedStrategyGates.add(gateKey);
+          appendCsvRow("./logs/strategy_gate_events.csv", strategyGateHeader, [
+            new Date().toISOString(),
+            tradingRuntime.mode,
+            marketSlug,
+            timeLeftMin.toFixed(3),
+            regimeInfo.regime,
+            rec.action === "ENTER" ? `${rec.side}:${rec.phase}:${rec.strength}` : "NO_TRADE",
+            timeAware.adjustedUp,
+            timeAware.adjustedDown,
+            marketUp,
+            marketDown,
+            edge.edgeUp,
+            edge.edgeDown,
+            gateReason
+          ]);
+        }
+      }
     } catch (err) {
       console.log("────────────────────────────");
       console.log(`Error: ${err?.message ?? String(err)}`);

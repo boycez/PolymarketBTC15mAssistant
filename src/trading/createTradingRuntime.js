@@ -54,6 +54,10 @@ class TradingRuntime {
   getAccountIdentity() {
     return this.trader.getAccountIdentity?.() ?? null;
   }
+
+  getStrategyConstraints() {
+    return this.trader.getStrategyConstraints?.() ?? null;
+  }
 }
 
 export async function createTradingRuntime({ mode, paperConfig = {}, liveConfig = {} }) {

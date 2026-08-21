@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { fetchMarketById, fetchMarketBySlug } from "./data/polymarket.js";
+import { formatRecommendationReason } from "./trading/strategy.js";
 
 const COLUMNS = [
   "strategy",
@@ -304,9 +305,19 @@ export class PaperTrader {
     const expectedRegime = side === "UP" ? "TREND_UP" : side === "DOWN" ? "TREND_DOWN" : null;
     const trendIsEligible = !this.requireTrendAlignment || regime === expectedRegime;
 
-    if (recommendation?.action !== "ENTER" || !side || !timeIsEligible || !trendIsEligible) {
+    if (recommendation?.action !== "ENTER" || !expectedRegime) {
       this.candidate = null;
-      return this.getStatus(marketSlug, nowMs);
+      const reason = formatRecommendationReason(recommendation?.reason);
+      return { state: "WAITING", text: `waiting: ${reason}` };
+    }
+    if (!timeIsEligible) {
+      this.candidate = null;
+      const remaining = Number.isFinite(remainingMinutes) ? `${remainingMinutes.toFixed(1)}m remaining` : "time unavailable";
+      return { state: "WAITING", text: `waiting: outside entry window (${remaining})` };
+    }
+    if (!trendIsEligible) {
+      this.candidate = null;
+      return { state: "WAITING", text: `waiting: ${side} requires ${expectedRegime}` };
     }
 
     const candidateKey = `${marketSlug}:${side}`;
@@ -348,18 +359,21 @@ export class PaperTrader {
       ? null
       : modelProbability - effectiveEntryPrice;
     const endTimeMs = new Date(market.endDate).getTime();
-    if (
-      market.active !== true
-      || market.closed === true
-      || market.acceptingOrders !== true
-      || market.enableOrderBook === false
-      || !fill.filled
-      || executionEdge === null
-      || executionEdge < this.minExecutionEdge
-      || !Number.isFinite(endTimeMs)
-    ) {
+    let rejectionReason = null;
+    if (market.active !== true || market.closed === true || market.acceptingOrders !== true || market.enableOrderBook === false) {
+      rejectionReason = "market is not accepting orders";
+    } else if (!fill.filled) {
+      rejectionReason = String(fill.reason ?? "order is not executable").replaceAll("_", " ");
+    } else if (executionEdge === null) {
+      rejectionReason = "execution edge unavailable";
+    } else if (executionEdge < this.minExecutionEdge) {
+      rejectionReason = `execution edge ${(executionEdge * 100).toFixed(1)}% < ${(this.minExecutionEdge * 100).toFixed(1)}%`;
+    } else if (!Number.isFinite(endTimeMs)) {
+      rejectionReason = "market end time unavailable";
+    }
+    if (rejectionReason) {
       this.candidate = null;
-      return this.getStatus(marketSlug, nowMs);
+      return { state: "WAITING", text: `waiting: ${rejectionReason}` };
     }
 
     this.trades.push({
@@ -470,6 +484,17 @@ export class PaperTrader {
     }
 
     return { state: "WAITING", text: "waiting for stable signal" };
+  }
+
+  getStrategyConstraints() {
+    return {
+      confirmationSeconds: this.confirmationMs / 1_000,
+      minRemainingMinutes: this.minRemainingMinutes,
+      maxRemainingMinutes: this.maxRemainingMinutes,
+      minExecutionEdge: this.minExecutionEdge,
+      maxSlippage: this.maxSlippage,
+      requireTrendAlignment: this.requireTrendAlignment
+    };
   }
 
   getSummary() {

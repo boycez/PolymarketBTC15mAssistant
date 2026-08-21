@@ -13,6 +13,7 @@ import { privateKey } from "@polymarket/client/viem";
 
 import { getResolvedWinner, simulateFokBuy } from "./paperTrading.js";
 import { fetchMarketById, fetchMarketBySlug } from "./data/polymarket.js";
+import { formatRecommendationReason } from "./trading/strategy.js";
 
 const COLUMNS = [
   "strategy",
@@ -287,9 +288,19 @@ export class LiveTrader {
       && remainingMinutes <= this.maxRemainingMinutes;
     const expectedRegime = side === "UP" ? "TREND_UP" : side === "DOWN" ? "TREND_DOWN" : null;
     const trendIsEligible = !this.requireTrendAlignment || regime === expectedRegime;
-    if (recommendation?.action !== "ENTER" || !expectedRegime || !timeIsEligible || !trendIsEligible) {
+    if (recommendation?.action !== "ENTER" || !expectedRegime) {
       this.candidate = null;
-      return this.getStatus(marketSlug, nowMs);
+      const reason = formatRecommendationReason(recommendation?.reason);
+      return { state: "WAITING", text: `waiting: ${reason}` };
+    }
+    if (!timeIsEligible) {
+      this.candidate = null;
+      const remaining = Number.isFinite(remainingMinutes) ? `${remainingMinutes.toFixed(1)}m remaining` : "time unavailable";
+      return { state: "WAITING", text: `waiting: outside entry window (${remaining})` };
+    }
+    if (!trendIsEligible) {
+      this.candidate = null;
+      return { state: "WAITING", text: `waiting: ${side} requires ${expectedRegime}` };
     }
 
     const candidateKey = `${marketSlug}:${side}`;
@@ -318,18 +329,23 @@ export class LiveTrader {
       ? modelProbability - (fill.totalCost / fill.shares)
       : null;
     const endTimeMs = new Date(market.endDate).getTime();
-    const eligible = tokenId
-      && market.active === true
-      && market.closed !== true
-      && market.acceptingOrders === true
-      && market.enableOrderBook !== false
-      && fill.filled
-      && executionEdge !== null
-      && executionEdge >= this.minExecutionEdge
-      && Number.isFinite(endTimeMs);
-    if (!eligible) {
+    let rejectionReason = null;
+    if (!tokenId) {
+      rejectionReason = "outcome token unavailable";
+    } else if (market.active !== true || market.closed === true || market.acceptingOrders !== true || market.enableOrderBook === false) {
+      rejectionReason = "market is not accepting orders";
+    } else if (!fill.filled) {
+      rejectionReason = String(fill.reason ?? "order is not executable").replaceAll("_", " ");
+    } else if (executionEdge === null) {
+      rejectionReason = "execution edge unavailable";
+    } else if (executionEdge < this.minExecutionEdge) {
+      rejectionReason = `execution edge ${(executionEdge * 100).toFixed(1)}% < ${(this.minExecutionEdge * 100).toFixed(1)}%`;
+    } else if (!Number.isFinite(endTimeMs)) {
+      rejectionReason = "market end time unavailable";
+    }
+    if (rejectionReason) {
       this.candidate = null;
-      return this.getStatus(marketSlug, nowMs);
+      return { state: "WAITING", text: `waiting: ${rejectionReason}` };
     }
 
     this.candidate = null;
@@ -497,6 +513,17 @@ export class LiveTrader {
       realized_pnl_usd: pnl,
       realized_return_pct: settledStake > 0 ? (pnl / settledStake) * 100 : 0,
       pending_stake_usd: pending.reduce((sum, trade) => sum + (finiteNumber(trade.stake_usd) ?? 0), 0)
+    };
+  }
+
+  getStrategyConstraints() {
+    return {
+      confirmationSeconds: this.confirmationMs / 1_000,
+      minRemainingMinutes: this.minRemainingMinutes,
+      maxRemainingMinutes: this.maxRemainingMinutes,
+      minExecutionEdge: this.minExecutionEdge,
+      maxSlippage: this.maxSlippage,
+      requireTrendAlignment: this.requireTrendAlignment
     };
   }
 

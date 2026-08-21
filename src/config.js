@@ -1,7 +1,7 @@
 import fs from "node:fs";
 
 import { resolveTradingMode } from "./trading/mode.js";
-import { TA_EDGE_V1_2_FOK } from "./trading/strategy.js";
+import { TA_EDGE_V1_2_FOK, resolvePaperStrategy } from "./trading/strategy.js";
 
 const LIVE_CONFIG_KEYS = new Set([
   "walletAddress",
@@ -77,7 +77,7 @@ export const CONFIG = {
   },
 
   paperTrading: {
-    ...TA_EDGE_V1_2_FOK,
+    ...resolvePaperStrategy(),
     stakeUsd: Number(process.env.PAPER_TRADE_STAKE_USD || 10),
     settlementPollMs: Number(process.env.PAPER_TRADE_SETTLEMENT_POLL_MS || 30_000),
     filePath: process.env.PAPER_TRADE_FILE || "./logs/paper_trades.csv"

@@ -112,7 +112,8 @@ test("resets confirmation when the recommendation disappears", () => {
   const base = eligibleInput();
 
   trader.observe({ ...base, recommendation: enterUp, nowMs: 0 });
-  trader.observe({ ...base, recommendation: noTrade, nowMs: 10_000 });
+  const waiting = trader.observe({ ...base, recommendation: { ...noTrade, reason: "prob_below_0.6" }, nowMs: 10_000 });
+  assert.deepEqual(waiting, { state: "WAITING", text: "waiting: model probability below 60.0%" });
   trader.observe({ ...base, recommendation: enterUp, nowMs: 11_000 });
   trader.observe({ ...base, recommendation: enterUp, nowMs: 25_999 });
   assert.equal(trader.trades.length, 0);
@@ -128,9 +129,10 @@ test("does not trade during the early phase", () => {
     remainingMinutes: 12
   });
 
-  trader.observe({ ...input, nowMs: 0 });
+  const status = trader.observe({ ...input, nowMs: 0 });
   trader.observe({ ...input, nowMs: 60_000 });
 
+  assert.equal(status.text, "waiting: outside entry window (12.0m remaining)");
   assert.equal(trader.trades.length, 0);
   assert.equal(trader.candidate, null);
 });
@@ -154,9 +156,10 @@ test("does not trade against the detected trend", () => {
   const trader = createTrader();
   const input = eligibleInput({ regime: "TREND_DOWN" });
 
-  trader.observe({ ...input, nowMs: 0 });
+  const status = trader.observe({ ...input, nowMs: 0 });
   trader.observe({ ...input, nowMs: 60_000 });
 
+  assert.equal(status.text, "waiting: UP requires TREND_UP");
   assert.equal(trader.trades.length, 0);
   assert.equal(trader.candidate, null);
 });
@@ -172,8 +175,9 @@ test("rechecks edge against the executable entry price", () => {
   });
 
   trader.observe({ ...input, nowMs: 0 });
-  trader.observe({ ...input, nowMs: 15_000 });
+  const status = trader.observe({ ...input, nowMs: 15_000 });
 
+  assert.equal(status.text, "waiting: execution edge 5.0% < 10.0%");
   assert.equal(trader.trades.length, 0);
   assert.equal(trader.candidate, null);
 });
