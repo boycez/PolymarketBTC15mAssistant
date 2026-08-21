@@ -50,6 +50,7 @@ function fmtTimeLeft(mins) {
 
 const ANSI = {
   reset: "\x1b[0m",
+  bold: "\x1b[1m",
   red: "\x1b[31m",
   green: "\x1b[32m",
   yellow: "\x1b[33m",
@@ -97,14 +98,14 @@ function centerText(text, width) {
   return " ".repeat(left) + text + " ".repeat(right);
 }
 
-const LABEL_W = 16;
+const LABEL_W = 18;
 function kv(label, value) {
   const l = padLabel(String(label), LABEL_W);
   return `${l}${value}`;
 }
 
 function section(title) {
-  return `${ANSI.white}${title}${ANSI.reset}`;
+  return centerText(`${ANSI.bold}${ANSI.white}${String(title).toUpperCase()}${ANSI.reset}`, screenWidth());
 }
 
 function colorPriceLine({ label, price, prevPrice, decimals = 0, prefix = "" }) {
@@ -673,7 +674,6 @@ async function main() {
       const binanceSpotKvLine = kv("BTC (Binance):", binanceSpotValue);
 
       const titleLine = poly.ok ? `${poly.market?.question ?? "-"}` : "-";
-      const marketLine = kv("Market:", poly.ok ? (poly.market?.slug ?? "-") : "-");
       const referenceColor = reference.state === "READY"
         ? ANSI.green
         : reference.state === "ARMED" || reference.state === "SYNCING"
@@ -686,6 +686,20 @@ async function main() {
         ? "-"
         : `${(reference.freshnessMs / 1_000).toFixed(1)}s`;
 
+      const recommendationText = (() => {
+        if (!reference.tradingAllowed) return `NO TRADE: reference ${reference.state}`;
+        if (rec.action !== "ENTER") return `NO TRADE: ${String(rec.reason ?? "no signal").replaceAll("_", " ")}`;
+        if (timeLeftMin < CONFIG.paperTrading.minRemainingMinutes || timeLeftMin > CONFIG.paperTrading.maxRemainingMinutes) {
+          return "NO TRADE: outside entry window";
+        }
+        const expectedRegime = rec.side === "UP" ? "TREND_UP" : "TREND_DOWN";
+        if (CONFIG.paperTrading.requireTrendAlignment && regimeInfo.regime !== expectedRegime) {
+          return `NO TRADE: ${rec.side} requires ${expectedRegime}`;
+        }
+        return `BUY ${rec.side}: ${rec.phase} ${rec.strength}`;
+      })();
+      const tradingMode = tradingRuntime.mode === "live" ? "Live" : "Paper";
+
       const timeColor = timeLeftMin >= 10 && timeLeftMin <= 15
         ? ANSI.green
         : timeLeftMin >= 5 && timeLeftMin < 10
@@ -695,67 +709,59 @@ async function main() {
             : ANSI.reset;
       const timeLeftLine = `⏱ Time left: ${timeColor}${fmtTimeLeft(timeLeftMin)}${ANSI.reset}`;
 
-      const polyTimeLeftColor = settlementLeftMin !== null
-        ? (settlementLeftMin >= 10 && settlementLeftMin <= 15
-          ? ANSI.green
-          : settlementLeftMin >= 5 && settlementLeftMin < 10
-            ? ANSI.yellow
-            : settlementLeftMin >= 0 && settlementLeftMin < 5
-              ? ANSI.red
-              : ANSI.reset)
-        : ANSI.reset;
-
       const lines = [
-        titleLine,
-        marketLine,
-        kv("Time Left:", `${timeColor}${fmtTimeLeft(timeLeftMin)}${ANSI.reset}`),
+        centerText(`${ANSI.bold}${ANSI.white}POLYMARKET BTC 15M ASSISTANT${ANSI.reset}`, screenWidth()),
         "",
         sepLine(),
+        section("Market Snapshot"),
+        kv("Market:", titleLine),
+        kv("Slug:", poly.ok ? (poly.market?.slug ?? "-") : "-"),
+        kv("Time Left:", `${timeColor}${fmtTimeLeft(timeLeftMin)}${ANSI.reset}`),
+        kv("Polymarket:", polyHeaderValue),
+        liquidity !== null ? kv("Liquidity:", `$${formatNumber(liquidity, 0)}`) : null,
+        priceToBeat !== null ? kv("Price To Beat:", `$${formatNumber(priceToBeat, 2)}`) : kv("Price To Beat:", `${ANSI.gray}unavailable${ANSI.reset}`),
+        currentPriceLine,
+        binanceSpotKvLine,
+        sepLine(),
         "",
+        sepLine(),
+        section("Signal Analysis"),
         kv("TA Predict:", predictValue),
         kv("Heiken Ashi:", heikenLine.split(": ")[1] ?? heikenLine),
         kv("RSI:", rsiLine.split(": ")[1] ?? rsiLine),
         kv("MACD:", macdLine.split(": ")[1] ?? macdLine),
         kv("Delta 1/3:", deltaLine.split(": ")[1] ?? deltaLine),
         kv("VWAP:", vwapLine.split(": ")[1] ?? vwapLine),
-        "",
+        kv("Regime:", regimeInfo.regime),
+        kv("Recommendation:", recommendationText),
         sepLine(),
         "",
-        section("Reference Data"),
-        kv("State:", `${referenceColor}${reference.state}${ANSI.reset}`),
-        kv("Reason:", reference.reason),
-        kv("Source:", "Chainlink BTC/USD TWAP 60s"),
-        kv("Observed UTC:", referenceObserved),
-        kv("Freshness:", referenceFreshness),
-        priceToBeat !== null ? kv("Price To Beat:", `$${formatNumber(priceToBeat, 2)}`) : kv("Price To Beat:", `${ANSI.gray}unavailable${ANSI.reset}`),
-        currentPriceLine,
+        sepLine(),
+        section("Trading Readiness"),
+        kv("Mode:", tradingMode),
+        kv("Reference State:", `${referenceColor}${reference.state}${ANSI.reset}`),
         kv("Trading Gate:", reference.tradingAllowed ? `${ANSI.green}OPEN${ANSI.reset}` : `${ANSI.red}CLOSED${ANSI.reset}`),
-        "",
+        kv("Freshness:", referenceFreshness),
+        kv("Reason:", reference.reason),
+        kv("Observed UTC:", referenceObserved),
+        kv("Source:", "Chainlink BTC/USD TWAP 60s"),
         sepLine(),
         "",
-        kv("Polymarket:", polyHeaderValue),
-        liquidity !== null ? kv("Liquidity:", formatNumber(liquidity, 0)) : null,
-        settlementLeftMin !== null ? kv("Time Left:", `${polyTimeLeftColor}${fmtTimeLeft(settlementLeftMin)}${ANSI.reset}`) : null,
-        "",
         sepLine(),
-        "",
-        binanceSpotKvLine,
-        "",
-        sepLine(),
-        "",
         section(tradingRuntime.sectionTitle),
         kv("Status:", tradingStatus.text),
         kv("Trades:", `${tradingSummary.total_trades} total | ${tradingSummary.settled_trades} settled | ${tradingSummary.pending_trades} awaiting`),
         kv("Record:", `${tradingSummary.wins}W / ${tradingSummary.losses}L | ${formatNumber(tradingSummary.win_rate_pct, 1)}%`),
         kv("Realized PnL:", `${tradingPnlColor}${tradingPnlSign}$${formatNumber(tradingSummary.realized_pnl_usd, 2)} (${tradingReturnSign}${formatNumber(tradingSummary.realized_return_pct, 1)}%)${ANSI.reset}`),
         kv("Pending Stake:", `$${formatNumber(tradingSummary.pending_stake_usd, 2)}`),
-        "",
         sepLine(),
         "",
+        sepLine(),
+        section("Session"),
         kv("ET | Session:", `${ANSI.white}${fmtEtTime(new Date())}${ANSI.reset} | ${ANSI.white}${getBtcSession(new Date())}${ANSI.reset}`),
-        "",
         sepLine(),
-        centerText(`${ANSI.dim}${ANSI.gray}created by @krajekis${ANSI.reset}`, screenWidth())
+        "",
+        centerText(`${ANSI.dim}${ANSI.gray}created by @krajekis | enhanced by @boycez${ANSI.reset}`, screenWidth())
       ].filter((x) => x !== null);
 
       renderScreen(lines.join("\n") + "\n");
