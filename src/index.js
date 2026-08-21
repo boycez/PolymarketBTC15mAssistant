@@ -616,10 +616,10 @@ async function main() {
       const priceToBeat = reference.priceToBeat === null ? null : Number(reference.priceToBeat);
       const marketSlug = poly.ok ? String(poly.market?.slug ?? "") : "";
       const currentPriceBaseLine = colorPriceLine({
-        label: "CURRENT TWAP",
+        label: "Current Price",
         price: currentPrice,
         prevPrice: prevCurrentPrice,
-        decimals: 6,
+        decimals: 2,
         prefix: "$"
       });
 
@@ -637,7 +637,7 @@ async function main() {
         ? `${ANSI.gray}-${ANSI.reset}`
         : `${ptbDeltaColor}${ptbDelta > 0 ? "+" : ptbDelta < 0 ? "-" : ""}$${Math.abs(ptbDelta).toFixed(2)}${ANSI.reset}`;
       const currentPriceValue = currentPriceBaseLine.split(": ")[1] ?? currentPriceBaseLine;
-      const currentPriceLine = kv("CURRENT TWAP:", `${currentPriceValue} (${ptbDeltaText})`);
+      const currentPriceLine = kv("Current Price:", `${currentPriceValue} (${ptbDeltaText})`);
 
       if (CONFIG.polymarket.dumpMarketSnapshots && poly.ok && poly.market && priceToBeat === null) {
         const slug = safeFileSlug(poly.market.slug || poly.market.id || "market");
@@ -703,7 +703,7 @@ async function main() {
       const lines = [
         titleLine,
         marketLine,
-        kv("Time left:", `${timeColor}${fmtTimeLeft(timeLeftMin)}${ANSI.reset}`),
+        kv("Time Left:", `${timeColor}${fmtTimeLeft(timeLeftMin)}${ANSI.reset}`),
         "",
         sepLine(),
         "",
@@ -716,21 +716,21 @@ async function main() {
         "",
         sepLine(),
         "",
-        section("REFERENCE DATA"),
+        section("Reference Data"),
         kv("State:", `${referenceColor}${reference.state}${ANSI.reset}`),
         kv("Reason:", reference.reason),
         kv("Source:", "Chainlink BTC/USD TWAP 60s"),
         kv("Observed UTC:", referenceObserved),
         kv("Freshness:", referenceFreshness),
-        priceToBeat !== null ? kv("PRICE TO BEAT:", `$${formatNumber(priceToBeat, 6)}`) : kv("PRICE TO BEAT:", `${ANSI.gray}unavailable${ANSI.reset}`),
+        priceToBeat !== null ? kv("Price To Beat:", `$${formatNumber(priceToBeat, 2)}`) : kv("Price To Beat:", `${ANSI.gray}unavailable${ANSI.reset}`),
         currentPriceLine,
-        kv("Trading gate:", reference.tradingAllowed ? `${ANSI.green}OPEN${ANSI.reset}` : `${ANSI.red}CLOSED${ANSI.reset}`),
+        kv("Trading Gate:", reference.tradingAllowed ? `${ANSI.green}OPEN${ANSI.reset}` : `${ANSI.red}CLOSED${ANSI.reset}`),
         "",
         sepLine(),
         "",
-        kv("POLYMARKET:", polyHeaderValue),
+        kv("Polymarket:", polyHeaderValue),
         liquidity !== null ? kv("Liquidity:", formatNumber(liquidity, 0)) : null,
-        settlementLeftMin !== null ? kv("Time left:", `${polyTimeLeftColor}${fmtTimeLeft(settlementLeftMin)}${ANSI.reset}`) : null,
+        settlementLeftMin !== null ? kv("Time Left:", `${polyTimeLeftColor}${fmtTimeLeft(settlementLeftMin)}${ANSI.reset}`) : null,
         "",
         sepLine(),
         "",
@@ -738,12 +738,12 @@ async function main() {
         "",
         sepLine(),
         "",
-        section("PAPER TRADING"),
+        section("Paper Trading"),
         kv("Status:", paperStatus.text),
         kv("Trades:", `${paperSummary.total_trades} total | ${paperSummary.settled_trades} settled | ${paperSummary.pending_trades} awaiting`),
         kv("Record:", `${paperSummary.wins}W / ${paperSummary.losses}L | ${formatNumber(paperSummary.win_rate_pct, 1)}%`),
         kv("Realized PnL:", `${paperPnlColor}${paperPnlSign}$${formatNumber(paperSummary.realized_pnl_usd, 2)}${ANSI.reset}`),
-        kv("Pending stake:", `$${formatNumber(paperSummary.pending_stake_usd, 2)}`),
+        kv("Pending Stake:", `$${formatNumber(paperSummary.pending_stake_usd, 2)}`),
         "",
         sepLine(),
         "",
