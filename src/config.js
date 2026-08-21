@@ -15,6 +15,14 @@ export const CONFIG = {
   macdSlow: 26,
   macdSignal: 9,
 
+  paperTrading: {
+    enabled: (process.env.PAPER_TRADING_ENABLED || "true").toLowerCase() === "true",
+    confirmationSeconds: Number(process.env.PAPER_TRADE_CONFIRMATION_SECONDS || 15),
+    stakeUsd: Number(process.env.PAPER_TRADE_STAKE_USD || 10),
+    settlementPollMs: Number(process.env.PAPER_TRADE_SETTLEMENT_POLL_MS || 30_000),
+    filePath: process.env.PAPER_TRADE_FILE || "./logs/paper_trades.csv"
+  },
+
   polymarket: {
     marketSlug: process.env.POLYMARKET_SLUG || "",
     seriesId: process.env.POLYMARKET_SERIES_ID || "10192",

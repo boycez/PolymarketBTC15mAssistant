@@ -25,6 +25,7 @@ import fs from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
 import { applyGlobalProxyFromEnv } from "./net/proxy.js";
+import { PaperTrader } from "./paperTrading.js";
 
 function countVwapCrosses(closes, vwapSeries, lookback) {
   if (closes.length < lookback || vwapSeries.length < lookback) return null;
@@ -399,6 +400,7 @@ async function main() {
   const binanceStream = startBinanceTradeStream({ symbol: CONFIG.symbol });
   const polymarketLiveStream = startPolymarketChainlinkPriceStream({});
   const chainlinkStream = startChainlinkPriceStream({});
+  const paperTrader = new PaperTrader(CONFIG.paperTrading);
 
   let prevSpotPrice = null;
   let prevCurrentPrice = null;
@@ -577,6 +579,18 @@ async function main() {
         ? (Number(poly.market?.liquidityNum) || Number(poly.market?.liquidity) || null)
         : null;
 
+      await paperTrader.settlePending();
+      const paperStatus = paperTrader.observe({
+        market: poly.ok ? poly.market : null,
+        recommendation: rec,
+        entryPrices: {
+          up: poly.ok ? (poly.orderbook.up.bestAsk ?? marketUp) : null,
+          down: poly.ok ? (poly.orderbook.down.bestAsk ?? marketDown) : null
+        },
+        modelUp: timeAware.adjustedUp,
+        modelDown: timeAware.adjustedDown
+      });
+
       const spotPrice = wsPrice ?? lastPrice;
       const currentPrice = chainlink?.price ?? null;
       const marketSlug = poly.ok ? String(poly.market?.slug ?? "") : "";
@@ -675,6 +689,7 @@ async function main() {
         sepLine(),
         "",
         kv("TA Predict:", predictValue),
+        kv("Paper Trade:", paperStatus.text),
         kv("Heiken Ashi:", heikenLine.split(": ")[1] ?? heikenLine),
         kv("RSI:", rsiLine.split(": ")[1] ?? rsiLine),
         kv("MACD:", macdLine.split(": ")[1] ?? macdLine),

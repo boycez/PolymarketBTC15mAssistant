@@ -176,6 +176,46 @@ Example:
 npm start
 ```
 
+## Paper trading
+
+Paper trading is enabled by default. The assistant waits for the same `BUY UP`
+or `BUY DOWN` recommendation to remain active for 15 seconds, then records at
+most one simulated trade for that market in:
+
+```text
+logs/paper_trades.csv
+```
+
+The simulated entry uses the order book best ask when available and a default
+stake of $10. After the market end time, the assistant polls the Polymarket
+Gamma API until the market is officially resolved. It then records the winning
+outcome, payout, and PnL in the same CSV file. Keep or restart the assistant to
+allow pending trades to be settled.
+
+The `Paper Trade` line on the console shows one of these states:
+
+- `waiting for stable signal`
+- `UP confirming 8/15s`
+- `UP PENDING @ 42.0c`
+- `UP SETTLED (+$13.81)`
+
+Optional environment variables:
+
+- `PAPER_TRADING_ENABLED` (default: `true`)
+- `PAPER_TRADE_CONFIRMATION_SECONDS` (default: `15`)
+- `PAPER_TRADE_STAKE_USD` (default: `10`)
+- `PAPER_TRADE_SETTLEMENT_POLL_MS` (default: `30000`)
+- `PAPER_TRADE_FILE` (default: `./logs/paper_trades.csv`)
+
+Paper PnL does not include Polymarket fees. This feature never connects a wallet
+or places a real order.
+
+Run the local behavior tests with:
+
+```bash
+npm test
+```
+
 ### Stop
 
 Press `Ctrl + C` in the terminal.
