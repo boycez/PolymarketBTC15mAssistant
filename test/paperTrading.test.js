@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { getResolvedWinner, PaperTrader } from "../src/paperTrading.js";
+import { getResolvedWinner, PaperTrader, simulateFokBuy } from "../src/paperTrading.js";
 
 function createTrader(overrides = {}) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "poly-paper-"));
@@ -27,7 +27,23 @@ function market(overrides = {}) {
     id: "123",
     slug: "btc-up-or-down-15m-test",
     endDate: "2026-08-21T10:15:00.000Z",
+    active: true,
+    closed: false,
+    acceptingOrders: true,
+    enableOrderBook: true,
+    feesEnabled: false,
+    orderMinSize: 5,
+    orderPriceMinTickSize: 0.01,
     ...overrides
+  };
+}
+
+function orderBook(bestAsk = 0.4, asks = [{ price: bestAsk, size: 100 }]) {
+  return {
+    bestAsk,
+    asks,
+    tickSize: 0.01,
+    minOrderSize: 5
   };
 }
 
@@ -35,7 +51,10 @@ function eligibleInput(overrides = {}) {
   return {
     market: market(),
     recommendation: enterUp,
-    entryPrices: { up: 0.4, down: 0.6 },
+    orderBooks: {
+      up: orderBook(0.4),
+      down: orderBook(0.6)
+    },
     modelUp: 0.65,
     modelDown: 0.35,
     remainingMinutes: 8,
@@ -62,11 +81,15 @@ test("records one paper trade after a stable signal", () => {
   assert.equal(trader.trades[0].side, "UP");
   assert.equal(trader.trades[0].entry_price, 0.4);
   assert.equal(trader.trades[0].shares, 25);
-  assert.equal(trader.trades[0].strategy, "TA_EDGE_V1_1");
+  assert.equal(trader.trades[0].strategy, "TA_EDGE_V1_2_FOK");
+  assert.equal(trader.trades[0].order_type, "FOK");
+  assert.equal(trader.trades[0].fill_status, "FILLED");
+  assert.equal(trader.trades[0].fee_usd, 0);
+  assert.equal(trader.trades[0].worst_fill_price, 0.4);
   assert.equal(trader.trades[0].execution_edge, 0.25);
   assert.equal(trader.trades[0].time_left_minutes, 8);
   assert.equal(trader.trades[0].regime, "TREND_UP");
-  assert.equal(trader.trades[0].status, "PENDING");
+  assert.equal(trader.trades[0].status, "AWAITING_SETTLEMENT");
 
   const summary = readSummary(trader);
   assert.equal(summary.total_trades, 1);
@@ -117,7 +140,10 @@ test("does not trade against the detected trend", () => {
 test("rechecks edge against the executable entry price", () => {
   const trader = createTrader();
   const input = eligibleInput({
-    entryPrices: { up: 0.6, down: 0.4 },
+    orderBooks: {
+      up: orderBook(0.6),
+      down: orderBook(0.4)
+    },
     modelUp: 0.65
   });
 
@@ -128,14 +154,65 @@ test("rechecks edge against the executable entry price", () => {
   assert.equal(trader.candidate, null);
 });
 
+test("walks multiple ask levels and records slippage", () => {
+  const fill = simulateFokBuy({
+    asks: [
+      { price: 0.4, size: 5 },
+      { price: 0.41, size: 50 }
+    ],
+    stakeUsd: 10,
+    maxPrice: 0.42,
+    minOrderSize: 5
+  });
+
+  assert.equal(fill.filled, true);
+  assert.equal(fill.worstFillPrice, 0.41);
+  assert.ok(fill.averagePrice > 0.4);
+  assert.ok(fill.totalCost <= 10);
+  assert.ok(fill.leftoverBudget < 0.01);
+});
+
+test("includes the official dynamic taker fee", () => {
+  const fill = simulateFokBuy({
+    asks: [{ price: 0.5, size: 100 }],
+    stakeUsd: 10,
+    maxPrice: 0.5,
+    minOrderSize: 5,
+    feesEnabled: true,
+    feeSchedule: { rate: 0.07, exponent: 1, takerOnly: true }
+  });
+
+  assert.equal(fill.filled, true);
+  assert.equal(fill.shares, 19.32);
+  assert.equal(fill.notional, 9.66);
+  assert.equal(fill.fee, 0.3381);
+  assert.equal(fill.totalCost, 9.9981);
+});
+
+test("rejects an FOK simulation when book depth is insufficient", () => {
+  const fill = simulateFokBuy({
+    asks: [{ price: 0.4, size: 1 }],
+    stakeUsd: 10,
+    maxPrice: 0.42,
+    minOrderSize: 5
+  });
+
+  assert.equal(fill.filled, false);
+  assert.equal(fill.reason, "insufficient_depth");
+});
+
 test("settles a winning trade from the official resolved outcome", async () => {
+  let fetchedTrade = null;
   const trader = createTrader({
-    fetchMarket: async () => ({
-      closed: true,
-      umaResolutionStatus: "resolved",
-      outcomes: '["Up", "Down"]',
-      outcomePrices: '["1", "0"]'
-    })
+    fetchMarket: async (trade) => {
+      fetchedTrade = trade;
+      return {
+        closed: true,
+        umaResolutionStatus: "resolved",
+        outcomes: '["Up", "Down"]',
+        outcomePrices: '["1", "0"]'
+      };
+    }
   });
   const input = eligibleInput({
     market: market({ endDate: "1970-01-01T00:00:10.000Z" })
@@ -146,6 +223,8 @@ test("settles a winning trade from the official resolved outcome", async () => {
   const settled = await trader.settlePending(20_000);
 
   assert.equal(settled.length, 1);
+  assert.equal(fetchedTrade.market_id, "123");
+  assert.equal(fetchedTrade.market_slug, "btc-up-or-down-15m-test");
   assert.equal(trader.trades[0].winner, "UP");
   assert.equal(trader.trades[0].payout, 25);
   assert.equal(trader.trades[0].pnl, 15);

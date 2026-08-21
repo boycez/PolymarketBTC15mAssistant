@@ -17,11 +17,12 @@ export const CONFIG = {
 
   paperTrading: {
     enabled: (process.env.PAPER_TRADING_ENABLED || "true").toLowerCase() === "true",
-    strategy: process.env.PAPER_TRADE_STRATEGY || "TA_EDGE_V1_1",
+    strategy: process.env.PAPER_TRADE_STRATEGY || "TA_EDGE_V1_2_FOK",
     confirmationSeconds: Number(process.env.PAPER_TRADE_CONFIRMATION_SECONDS || 30),
     minRemainingMinutes: Number(process.env.PAPER_TRADE_MIN_REMAINING_MINUTES || 5),
     maxRemainingMinutes: Number(process.env.PAPER_TRADE_MAX_REMAINING_MINUTES || 10),
     minExecutionEdge: Number(process.env.PAPER_TRADE_MIN_EXECUTION_EDGE || 0.1),
+    maxSlippage: Number(process.env.PAPER_TRADE_MAX_SLIPPAGE || 0.02),
     requireTrendAlignment: (process.env.PAPER_TRADE_REQUIRE_TREND_ALIGNMENT || "true").toLowerCase() === "true",
     stakeUsd: Number(process.env.PAPER_TRADE_STAKE_USD || 10),
     settlementPollMs: Number(process.env.PAPER_TRADE_SETTLEMENT_POLL_MS || 30_000),
@@ -34,6 +35,7 @@ export const CONFIG = {
     seriesId: process.env.POLYMARKET_SERIES_ID || "10192",
     seriesSlug: process.env.POLYMARKET_SERIES_SLUG || "btc-up-or-down-15m",
     autoSelectLatest: (process.env.POLYMARKET_AUTO_SELECT_LATEST || "true").toLowerCase() === "true",
+    dumpMarketSnapshots: (process.env.POLYMARKET_DUMP_MARKET_SNAPSHOTS || "false").toLowerCase() === "true",
     liveDataWsUrl: process.env.POLYMARKET_LIVE_WS_URL || "wss://ws-live-data.polymarket.com",
     upOutcomeLabel: process.env.POLYMARKET_UP_LABEL || "Up",
     downOutcomeLabel: process.env.POLYMARKET_DOWN_LABEL || "Down"

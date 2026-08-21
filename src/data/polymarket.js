@@ -5,6 +5,15 @@ function toNumber(x) {
   return Number.isFinite(n) ? n : null;
 }
 
+export async function fetchMarketById(id) {
+  const url = new URL(`/markets/${encodeURIComponent(String(id))}`, CONFIG.gammaBaseUrl);
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Gamma market error: ${res.status} ${await res.text()}`);
+  }
+  return await res.json();
+}
+
 export async function fetchMarketBySlug(slug) {
   const url = new URL("/markets", CONFIG.gammaBaseUrl);
   url.searchParams.set("slug", slug);
@@ -166,8 +175,13 @@ export async function fetchOrderBook({ tokenId }) {
 }
 
 export function summarizeOrderBook(book, depthLevels = 5) {
-  const bids = Array.isArray(book?.bids) ? book.bids : [];
-  const asks = Array.isArray(book?.asks) ? book.asks : [];
+  const normalizeLevels = (levels, direction) => (Array.isArray(levels) ? levels : [])
+    .map((level) => ({ price: toNumber(level?.price), size: toNumber(level?.size) }))
+    .filter((level) => level.price !== null && level.size !== null && level.price > 0 && level.size > 0)
+    .sort((left, right) => direction * (left.price - right.price));
+
+  const bids = normalizeLevels(book?.bids, -1);
+  const asks = normalizeLevels(book?.asks, 1);
 
   const bestBid = bids.length
     ? bids.reduce((best, lvl) => {
@@ -188,14 +202,18 @@ export function summarizeOrderBook(book, depthLevels = 5) {
     : null;
   const spread = bestBid !== null && bestAsk !== null ? bestAsk - bestBid : null;
 
-  const bidLiquidity = bids.slice(0, depthLevels).reduce((acc, x) => acc + (toNumber(x.size) ?? 0), 0);
-  const askLiquidity = asks.slice(0, depthLevels).reduce((acc, x) => acc + (toNumber(x.size) ?? 0), 0);
+  const bidLiquidity = bids.slice(0, depthLevels).reduce((acc, x) => acc + x.size, 0);
+  const askLiquidity = asks.slice(0, depthLevels).reduce((acc, x) => acc + x.size, 0);
 
   return {
     bestBid,
     bestAsk,
     spread,
     bidLiquidity,
-    askLiquidity
+    askLiquidity,
+    bids,
+    asks,
+    minOrderSize: toNumber(book?.min_order_size ?? book?.minOrderSize),
+    tickSize: toNumber(book?.tick_size ?? book?.tickSize)
   };
 }

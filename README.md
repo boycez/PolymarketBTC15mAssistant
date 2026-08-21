@@ -92,6 +92,9 @@ You can set them in your shell, or create a `.env` file and load it using your p
 - `POLYMARKET_SLUG` (optional)
   - If set, the assistant will target a specific market slug.
 - `POLYMARKET_LIVE_WS_URL` (default: `wss://ws-live-data.polymarket.com`)
+- `POLYMARKET_DUMP_MARKET_SNAPSHOTS` (default: `false`)
+  - When enabled, writes one full Gamma market JSON snapshot per market to
+    `logs/polymarket_market_<slug>.json` for debugging.
 
 ### Chainlink on Polygon (fallback)
 
@@ -178,14 +181,23 @@ npm start
 
 ## Paper trading
 
-Paper trading is enabled by default. The `TA_EDGE_V1_1` strategy records at
+Paper trading is enabled by default. The `TA_EDGE_V1_2_FOK` strategy records at
 most one simulated trade for a market when all of these conditions remain true
 for 30 seconds:
 
 - The market has between 5 and 10 minutes remaining.
 - The recommendation is `BUY UP` or `BUY DOWN`.
 - The detected regime agrees with the direction (`TREND_UP` or `TREND_DOWN`).
-- The model probability exceeds the executable best ask by at least 10%.
+- The model probability exceeds the fee-adjusted executable price by at least
+  10%.
+- The market is active, open, accepting orders, and has an enabled order book.
+- The full all-in stake can execute within 2 cents of the best ask.
+
+Execution simulates a Fill or Kill (FOK) taker order. It walks every available
+ask level up to the limit price, enforces the live CLOB tick size and minimum
+order size, rounds shares down to two decimals, and rejects the entire trade if
+the requested stake cannot fill. When fees are enabled, it applies the market's
+fee schedule using Polymarket's taker fee formula and five-decimal fee rounding.
 
 Trades are recorded in:
 
@@ -203,37 +215,40 @@ The summary is refreshed on startup, whenever a paper trade is created, and
 after each official settlement. It includes total, settled and pending trades,
 wins, losses, win rate, settled payout, realized PnL, and pending stake.
 
-The simulated entry uses the order book best ask when available and a default
-stake of $10. After the market end time, the assistant polls the Polymarket
-Gamma API until the market is officially resolved. It then records the winning
-outcome, payout, and PnL in the same CSV file. Keep or restart the assistant to
-allow pending trades to be settled.
+The default all-in stake is $10. The CSV records best ask, limit price, average
+fill price, worst fill price, slippage, notional, fee, shares, and net execution
+edge. After the market end time, the assistant polls the Polymarket Gamma API
+until the market is officially resolved. It then records the winning outcome,
+payout, and fee-adjusted PnL in the same CSV file. Keep or restart the assistant
+to allow awaiting trades to be settled.
 
 The `Paper Trade` line on the console shows one of these states:
 
 - `waiting for stable signal`
 - `UP confirming 18/30s`
-- `UP PENDING @ 42.0c`
+- `UP AWAITING_SETTLEMENT @ 42.0c`
 - `UP SETTLED (+$13.81)`
 
 Optional environment variables:
 
 - `PAPER_TRADING_ENABLED` (default: `true`)
-- `PAPER_TRADE_STRATEGY` (default: `TA_EDGE_V1_1`)
+- `PAPER_TRADE_STRATEGY` (default: `TA_EDGE_V1_2_FOK`)
 - `PAPER_TRADE_CONFIRMATION_SECONDS` (default: `30`)
 - `PAPER_TRADE_MIN_REMAINING_MINUTES` (default: `5`)
 - `PAPER_TRADE_MAX_REMAINING_MINUTES` (default: `10`)
 - `PAPER_TRADE_MIN_EXECUTION_EDGE` (default: `0.1`)
+- `PAPER_TRADE_MAX_SLIPPAGE` (default: `0.02`)
 - `PAPER_TRADE_REQUIRE_TREND_ALIGNMENT` (default: `true`)
 - `PAPER_TRADE_STAKE_USD` (default: `10`)
 - `PAPER_TRADE_SETTLEMENT_POLL_MS` (default: `30000`)
 - `PAPER_TRADE_FILE` (default: `./logs/paper_trades.csv`)
 - `PAPER_TRADE_SUMMARY_FILE` (default: `./logs/paper_summary.json`)
 
-Each paper trade also records its strategy, executable market probability,
-execution edge, confirmation duration, remaining time, and detected regime for
-later analysis. Paper PnL does not include Polymarket fees. This feature never
-connects a wallet or places a real order.
+Each paper trade also records its strategy, execution details, confirmation
+duration, remaining time, and detected regime for later analysis. The simulator
+cannot validate wallet balance, token allowance, API authentication, account
+restrictions, or network/signing failures because it never connects a wallet or
+places a real order.
 
 Run the local behavior tests with:
 

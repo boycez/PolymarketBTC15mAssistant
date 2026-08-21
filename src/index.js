@@ -21,8 +21,6 @@ import { scoreDirection, applyTimeAwareness } from "./engines/probability.js";
 import { computeEdge, decide } from "./engines/edge.js";
 import { appendCsvRow, formatNumber, formatPct, getCandleWindowTiming, sleep } from "./utils.js";
 import { startBinanceTradeStream } from "./data/binanceWs.js";
-import fs from "node:fs";
-import path from "node:path";
 import readline from "node:readline";
 import { applyGlobalProxyFromEnv } from "./net/proxy.js";
 import { PaperTrader } from "./paperTrading.js";
@@ -347,8 +345,8 @@ async function fetchPolymarketSnapshot() {
 
   let upBuy = null;
   let downBuy = null;
-  let upBookSummary = { bestBid: null, bestAsk: null, spread: null, bidLiquidity: null, askLiquidity: null };
-  let downBookSummary = { bestBid: null, bestAsk: null, spread: null, bidLiquidity: null, askLiquidity: null };
+  let upBookSummary = { bestBid: null, bestAsk: null, spread: null, bidLiquidity: null, askLiquidity: null, bids: [], asks: [], minOrderSize: null, tickSize: null };
+  let downBookSummary = { bestBid: null, bestAsk: null, spread: null, bidLiquidity: null, askLiquidity: null, bids: [], asks: [], minOrderSize: null, tickSize: null };
 
   try {
     const [yesBuy, noBuy, upBook, downBook] = await Promise.all([
@@ -370,14 +368,22 @@ async function fetchPolymarketSnapshot() {
       bestAsk: Number(market.bestAsk) || null,
       spread: Number(market.spread) || null,
       bidLiquidity: null,
-      askLiquidity: null
+      askLiquidity: null,
+      bids: [],
+      asks: [],
+      minOrderSize: Number(market.orderMinSize) || null,
+      tickSize: Number(market.orderPriceMinTickSize) || null
     };
     downBookSummary = {
       bestBid: null,
       bestAsk: null,
       spread: Number(market.spread) || null,
       bidLiquidity: null,
-      askLiquidity: null
+      askLiquidity: null,
+      bids: [],
+      asks: [],
+      minOrderSize: Number(market.orderMinSize) || null,
+      tickSize: Number(market.orderPriceMinTickSize) || null
     };
   }
 
@@ -583,10 +589,7 @@ async function main() {
       const paperStatus = paperTrader.observe({
         market: poly.ok ? poly.market : null,
         recommendation: rec,
-        entryPrices: {
-          up: poly.ok ? (poly.orderbook.up.bestAsk ?? marketUp) : null,
-          down: poly.ok ? (poly.orderbook.down.bestAsk ?? marketDown) : null
-        },
+        orderBooks: poly.ok ? poly.orderbook : null,
         modelUp: timeAware.adjustedUp,
         modelDown: timeAware.adjustedDown,
         remainingMinutes: timeLeftMin,
@@ -635,11 +638,13 @@ async function main() {
       const currentPriceValue = currentPriceBaseLine.split(": ")[1] ?? currentPriceBaseLine;
       const currentPriceLine = kv("CURRENT PRICE:", `${currentPriceValue} (${ptbDeltaText})`);
 
-      if (poly.ok && poly.market && priceToBeatState.value === null) {
+      if (CONFIG.polymarket.dumpMarketSnapshots && poly.ok && poly.market && priceToBeatState.value === null) {
         const slug = safeFileSlug(poly.market.slug || poly.market.id || "market");
         if (slug && !dumpedMarkets.has(slug)) {
           dumpedMarkets.add(slug);
           try {
+            const fs = await import("node:fs");
+            const path = await import("node:path");
             fs.mkdirSync("./logs", { recursive: true });
             fs.writeFileSync(path.join("./logs", `polymarket_market_${slug}.json`), JSON.stringify(poly.market, null, 2), "utf8");
           } catch {

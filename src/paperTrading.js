@@ -1,10 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { fetchMarketBySlug } from "./data/polymarket.js";
+import { fetchMarketById, fetchMarketBySlug } from "./data/polymarket.js";
 
 const COLUMNS = [
   "strategy",
+  "order_type",
   "market_id",
   "market_slug",
   "market_end_time",
@@ -12,7 +13,19 @@ const COLUMNS = [
   "side",
   "entry_price",
   "stake_usd",
+  "requested_stake_usd",
+  "filled_notional_usd",
+  "fee_usd",
   "shares",
+  "best_ask",
+  "limit_price",
+  "worst_fill_price",
+  "slippage",
+  "fill_status",
+  "tick_size",
+  "min_order_size",
+  "fees_enabled",
+  "fee_rate",
   "model_probability",
   "market_probability",
   "execution_edge",
@@ -76,6 +89,115 @@ function finiteNumber(value) {
   return Number.isFinite(number) ? number : null;
 }
 
+function floorTo(value, decimals) {
+  const factor = 10 ** decimals;
+  return Math.floor((value + Number.EPSILON) * factor) / factor;
+}
+
+function floorToTick(value, tickSize) {
+  if (!Number.isFinite(tickSize) || tickSize <= 0) return value;
+  return Math.floor((value + Number.EPSILON) / tickSize) * tickSize;
+}
+
+function roundFee(value) {
+  return Math.round((value + Number.EPSILON) * 100_000) / 100_000;
+}
+
+function feePerShare(price, feesEnabled, feeSchedule) {
+  if (!feesEnabled) return 0;
+  const rate = finiteNumber(feeSchedule?.rate);
+  if (rate === null || rate <= 0) return 0;
+  const exponent = finiteNumber(feeSchedule?.exponent) ?? 1;
+  return rate * ((price * (1 - price)) ** exponent);
+}
+
+export function simulateFokBuy({
+  asks,
+  stakeUsd,
+  maxPrice,
+  minOrderSize = 0,
+  feesEnabled = false,
+  feeSchedule = null
+}) {
+  const levels = (Array.isArray(asks) ? asks : [])
+    .map((level) => ({ price: finiteNumber(level?.price), size: finiteNumber(level?.size) }))
+    .filter((level) => level.price !== null && level.size !== null && level.price > 0 && level.size > 0)
+    .sort((left, right) => left.price - right.price)
+    .filter((level) => level.price <= maxPrice + Number.EPSILON);
+
+  if (!levels.length || !Number.isFinite(stakeUsd) || stakeUsd <= 0) {
+    return { filled: false, reason: "no_executable_liquidity" };
+  }
+
+  let affordableShares = 0;
+  let remainingBudget = stakeUsd;
+  for (const level of levels) {
+    const unitCost = level.price + feePerShare(level.price, feesEnabled, feeSchedule);
+    const shares = Math.min(level.size, remainingBudget / unitCost);
+    affordableShares += shares;
+    remainingBudget -= shares * unitCost;
+    if (remainingBudget <= 1e-9) break;
+  }
+
+  let targetShares = floorTo(affordableShares, 2);
+  const fillTarget = (sharesToFill) => {
+    let remainingShares = sharesToFill;
+    let notional = 0;
+    let fee = 0;
+    let worstFillPrice = null;
+
+    for (const level of levels) {
+      if (remainingShares <= 1e-9) break;
+      const shares = Math.min(level.size, remainingShares);
+      notional += shares * level.price;
+      fee += shares * feePerShare(level.price, feesEnabled, feeSchedule);
+      worstFillPrice = level.price;
+      remainingShares -= shares;
+    }
+
+    const roundedFee = roundFee(fee);
+    return {
+      complete: remainingShares <= 1e-9,
+      notional,
+      fee: roundedFee,
+      totalCost: notional + roundedFee,
+      worstFillPrice
+    };
+  };
+
+  let fill = fillTarget(targetShares);
+  while (targetShares > 0 && fill.totalCost > stakeUsd + 1e-9) {
+    targetShares = floorTo(targetShares - 0.01, 2);
+    fill = fillTarget(targetShares);
+  }
+
+  if (!fill.complete || targetShares <= 0) {
+    return { filled: false, reason: "insufficient_depth" };
+  }
+
+  const leftoverBudget = stakeUsd - fill.totalCost;
+  const cheapestUnitCost = levels[0].price + feePerShare(levels[0].price, feesEnabled, feeSchedule);
+  if (leftoverBudget >= cheapestUnitCost * 0.01 - 1e-9) {
+    return { filled: false, reason: "insufficient_depth" };
+  }
+
+  if (fill.notional + 1e-9 < minOrderSize) {
+    return { filled: false, reason: "below_min_order_size" };
+  }
+
+  const averagePrice = fill.notional / targetShares;
+  return {
+    filled: true,
+    shares: targetShares,
+    averagePrice,
+    worstFillPrice: fill.worstFillPrice,
+    notional: fill.notional,
+    fee: fill.fee,
+    totalCost: fill.totalCost,
+    leftoverBudget
+  };
+}
+
 export function getResolvedWinner(market) {
   if (market?.closed !== true) return null;
 
@@ -97,17 +219,18 @@ export function getResolvedWinner(market) {
 export class PaperTrader {
   constructor({
     enabled = true,
-    strategy = "TA_EDGE_V1_1",
+    strategy = "TA_EDGE_V1_2_FOK",
     confirmationSeconds = 30,
     minRemainingMinutes = 5,
     maxRemainingMinutes = 10,
     minExecutionEdge = 0.1,
+    maxSlippage = 0.02,
     requireTrendAlignment = true,
     stakeUsd = 10,
     settlementPollMs = 30_000,
     filePath = "./logs/paper_trades.csv",
     summaryFilePath = "./logs/paper_summary.json",
-    fetchMarket = fetchMarketBySlug
+    fetchMarket = null
   } = {}) {
     this.enabled = enabled;
     this.strategy = strategy;
@@ -115,12 +238,19 @@ export class PaperTrader {
     this.minRemainingMinutes = minRemainingMinutes;
     this.maxRemainingMinutes = maxRemainingMinutes;
     this.minExecutionEdge = minExecutionEdge;
+    this.maxSlippage = maxSlippage;
     this.requireTrendAlignment = requireTrendAlignment;
     this.stakeUsd = stakeUsd;
     this.settlementPollMs = settlementPollMs;
     this.filePath = filePath;
     this.summaryFilePath = summaryFilePath;
-    this.fetchMarket = fetchMarket;
+    this.fetchMarket = fetchMarket ?? (async (trade) => {
+      if (trade.market_id) {
+        const market = await fetchMarketById(trade.market_id);
+        if (market) return market;
+      }
+      return await fetchMarketBySlug(trade.market_slug);
+    });
     this.trades = this.#loadTrades();
     this.candidate = null;
     this.lastSettlementCheckMs = 0;
@@ -130,7 +260,7 @@ export class PaperTrader {
   observe({
     market,
     recommendation,
-    entryPrices,
+    orderBooks,
     modelUp,
     modelDown,
     remainingMinutes,
@@ -168,16 +298,41 @@ export class PaperTrader {
       return this.getStatus(marketSlug, nowMs);
     }
 
-    const entryPrice = finiteNumber(side === "UP" ? entryPrices?.up : entryPrices?.down);
+    const orderBook = side === "UP" ? orderBooks?.up : orderBooks?.down;
+    const bestAsk = finiteNumber(orderBook?.bestAsk);
+    const tickSize = finiteNumber(orderBook?.tickSize)
+      ?? finiteNumber(market.orderPriceMinTickSize)
+      ?? 0.01;
+    const minOrderSize = finiteNumber(orderBook?.minOrderSize)
+      ?? finiteNumber(market.orderMinSize)
+      ?? 0;
     const modelProbability = finiteNumber(side === "UP" ? modelUp : modelDown);
-    const executionEdge = entryPrice === null || modelProbability === null
+    const maxPrice = bestAsk === null
       ? null
-      : modelProbability - entryPrice;
+      : Math.min(0.99, floorToTick(bestAsk + this.maxSlippage, tickSize));
+    const feesEnabled = market.feesEnabled === true;
+    const feeSchedule = market.feeSchedule ?? null;
+    const fill = maxPrice === null
+      ? { filled: false, reason: "missing_best_ask" }
+      : simulateFokBuy({
+          asks: orderBook?.asks,
+          stakeUsd: this.stakeUsd,
+          maxPrice,
+          minOrderSize,
+          feesEnabled,
+          feeSchedule
+        });
+    const effectiveEntryPrice = fill.filled ? fill.totalCost / fill.shares : null;
+    const executionEdge = effectiveEntryPrice === null || modelProbability === null
+      ? null
+      : modelProbability - effectiveEntryPrice;
     const endTimeMs = new Date(market.endDate).getTime();
     if (
-      entryPrice === null
-      || entryPrice <= 0
-      || entryPrice >= 1
+      market.active !== true
+      || market.closed === true
+      || market.acceptingOrders !== true
+      || market.enableOrderBook === false
+      || !fill.filled
       || executionEdge === null
       || executionEdge < this.minExecutionEdge
       || !Number.isFinite(endTimeMs)
@@ -186,26 +341,38 @@ export class PaperTrader {
       return this.getStatus(marketSlug, nowMs);
     }
 
-    const shares = this.stakeUsd / entryPrice;
     this.trades.push({
       strategy: this.strategy,
+      order_type: "FOK",
       market_id: String(market.id ?? ""),
       market_slug: marketSlug,
       market_end_time: new Date(endTimeMs).toISOString(),
       entry_time: new Date(nowMs).toISOString(),
       side,
-      entry_price: entryPrice,
-      stake_usd: this.stakeUsd,
-      shares,
+      entry_price: fill.averagePrice,
+      stake_usd: fill.totalCost,
+      requested_stake_usd: this.stakeUsd,
+      filled_notional_usd: fill.notional,
+      fee_usd: fill.fee,
+      shares: fill.shares,
+      best_ask: bestAsk,
+      limit_price: maxPrice,
+      worst_fill_price: fill.worstFillPrice,
+      slippage: fill.averagePrice - bestAsk,
+      fill_status: "FILLED",
+      tick_size: tickSize,
+      min_order_size: minOrderSize,
+      fees_enabled: feesEnabled,
+      fee_rate: finiteNumber(feeSchedule?.rate) ?? 0,
       model_probability: modelProbability,
-      market_probability: entryPrice,
+      market_probability: fill.averagePrice,
       execution_edge: executionEdge,
       signal_confirmed_seconds: this.confirmationMs / 1_000,
       time_left_minutes: remainingMinutes,
       regime: String(regime ?? ""),
       phase: String(recommendation.phase ?? ""),
       strength: String(recommendation.strength ?? ""),
-      status: "PENDING",
+      status: "AWAITING_SETTLEMENT",
       winner: "",
       payout: "",
       pnl: "",
@@ -222,13 +389,15 @@ export class PaperTrader {
 
     const dueTrades = this.trades.filter((trade) => {
       const endTimeMs = new Date(trade.market_end_time).getTime();
-      return trade.status === "PENDING" && Number.isFinite(endTimeMs) && endTimeMs <= nowMs;
+      return ["PENDING", "AWAITING_SETTLEMENT"].includes(trade.status)
+        && Number.isFinite(endTimeMs)
+        && endTimeMs <= nowMs;
     });
 
     const settledTrades = [];
     for (const trade of dueTrades) {
       try {
-        const market = await this.fetchMarket(trade.market_slug);
+        const market = await this.fetchMarket(trade);
         const winner = getResolvedWinner(market);
         if (!winner) continue;
 
@@ -298,7 +467,7 @@ export class PaperTrader {
 
   #saveSummary() {
     const settledTrades = this.trades.filter((trade) => trade.status === "SETTLED");
-    const pendingTrades = this.trades.filter((trade) => trade.status === "PENDING");
+    const pendingTrades = this.trades.filter((trade) => ["PENDING", "AWAITING_SETTLEMENT"].includes(trade.status));
     const wins = settledTrades.filter((trade) => (finiteNumber(trade.pnl) ?? 0) > 0).length;
     const losses = settledTrades.filter((trade) => (finiteNumber(trade.pnl) ?? 0) < 0).length;
     const realizedPnl = settledTrades.reduce((sum, trade) => sum + (finiteNumber(trade.pnl) ?? 0), 0);
