@@ -24,7 +24,7 @@ import { appendCsvRow, formatNumber, formatPct, getCandleWindowTiming, sleep } f
 import { startBinanceTradeStream } from "./data/binanceWs.js";
 import { applyGlobalProxyFromEnv } from "./net/proxy.js";
 import { ReferencePriceGate } from "./referencePrice.js";
-import { acquireLivePrivateKey } from "./security/terminalSecret.js";
+import { acquireLivePrivateKey, acquireLiveRelayerApiKey } from "./security/terminalSecret.js";
 import { createTradingRuntime } from "./trading/createTradingRuntime.js";
 
 function countVwapCrosses(closes, vwapSeries, lookback) {
@@ -478,10 +478,18 @@ async function main() {
     mode: CONFIG.trading.mode,
     enabled: CONFIG.liveTrading.enabled
   });
+  const liveRelayerApiKey = await acquireLiveRelayerApiKey({
+    mode: CONFIG.trading.mode,
+    enabled: CONFIG.liveTrading.enabled
+  });
   const tradingRuntime = await createTradingRuntime({
     mode: CONFIG.trading.mode,
     paperConfig: CONFIG.paperTrading,
-    liveConfig: { ...CONFIG.liveTrading, privateKey: livePrivateKey }
+    liveConfig: {
+      ...CONFIG.liveTrading,
+      privateKey: livePrivateKey,
+      relayerApiKey: liveRelayerApiKey
+    }
   });
   let shuttingDown = false;
   const shutdown = async (signal) => {

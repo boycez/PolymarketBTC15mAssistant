@@ -75,3 +75,20 @@ export async function acquireLivePrivateKey({
   });
   return validatePrivateKey(privateKey);
 }
+
+export async function acquireLiveRelayerApiKey({
+  mode,
+  enabled,
+  input = process.stdin,
+  output = process.stdout
+}) {
+  if (mode !== "live" || !enabled) return "";
+
+  const apiKey = await readHiddenTerminalInput({
+    prompt: "Polymarket Relayer API key (hidden): ",
+    input,
+    output
+  });
+  if (!apiKey) throw new Error("A Polymarket Relayer API key is required for live trading.");
+  return apiKey;
+}

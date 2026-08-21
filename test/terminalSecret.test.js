@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
 
-import { acquireLivePrivateKey } from "../src/security/terminalSecret.js";
+import { acquireLivePrivateKey, acquireLiveRelayerApiKey } from "../src/security/terminalSecret.js";
 
 function fakeTerminal() {
   const input = new EventEmitter();
@@ -42,9 +42,28 @@ test("reads a valid Live private key without echoing it", async () => {
   assert.equal(terminal.input.isRaw, false);
 });
 
+test("reads a Live Relayer API key without echoing it", async () => {
+  const terminal = fakeTerminal();
+  const apiKey = "relayer-api-key";
+  const resultPromise = acquireLiveRelayerApiKey({
+    mode: "live",
+    enabled: true,
+    input: terminal.input,
+    output: terminal.output
+  });
+
+  terminal.input.emit("data", `${apiKey}\r`);
+
+  assert.equal(await resultPromise, apiKey);
+  assert.equal(terminal.displayed().includes(apiKey), false);
+  assert.equal(terminal.input.isRaw, false);
+});
+
 test("does not request a private key when Live trading is not enabled", async () => {
   assert.equal(await acquireLivePrivateKey({ mode: "live", enabled: false }), "");
   assert.equal(await acquireLivePrivateKey({ mode: "paper", enabled: true }), "");
+  assert.equal(await acquireLiveRelayerApiKey({ mode: "live", enabled: false }), "");
+  assert.equal(await acquireLiveRelayerApiKey({ mode: "paper", enabled: true }), "");
 });
 
 test("rejects a malformed private key before SDK authentication", async () => {

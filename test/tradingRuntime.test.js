@@ -9,12 +9,17 @@ import { buildSecureClientOptions } from "../src/liveTrading.js";
 
 test("builds SDK authentication with the existing Polymarket trading wallet", async () => {
   const walletAddress = `0x${"2".repeat(40)}`;
-  const options = buildSecureClientOptions({
+  const options = await buildSecureClientOptions({
     privateKey: `0x${"1".repeat(64)}`,
+    relayerApiKey: "relayer-key",
     walletAddress
   });
 
-  assert.equal(await options.signer.getAddress(), "0x19E7E376E7C213B7E7e7e46cc70A5dD086DAff2A");
+  const signerAddress = "0x19E7E376E7C213B7E7e7e46cc70A5dD086DAff2A";
+  const relayerHeaders = new Headers(await options.apiKey.authorize({}));
+  assert.equal(await options.signer.getAddress(), signerAddress);
+  assert.equal(relayerHeaders.get("RELAYER_API_KEY"), "relayer-key");
+  assert.equal(relayerHeaders.get("RELAYER_API_KEY_ADDRESS"), signerAddress);
   assert.equal(options.wallet, walletAddress);
 });
 
@@ -77,11 +82,15 @@ test("fails closed when Polymarket geoblocks live trading", async () => {
 });
 
 test("fails closed when collateral does not cover the live stake", async () => {
-  const client = {
-    async fetchClosedOnlyMode() {
+  const client = {};
+  const actions = {
+    async fetchClosedOnlyMode(receivedClient) {
+      assert.equal(receivedClient, client);
       return false;
     },
-    async fetchBalanceAllowance() {
+    async fetchBalanceAllowance(receivedClient, request) {
+      assert.equal(receivedClient, client);
+      assert.deepEqual(request, { assetType: "COLLATERAL" });
       return { balance: "4999999", allowances: {} };
     }
   };
@@ -92,6 +101,7 @@ test("fails closed when collateral does not cover the live stake", async () => {
       liveConfig: {
         enabled: true,
         client,
+        actions,
         checkGeoblock: async () => ({ blocked: false }),
         stakeUsd: 5,
         maxStakeUsd: 5
@@ -111,14 +121,20 @@ test("requires manual confirmation before submitting one guarded FOK order", asy
       signer: "0x1111111111111111111111111111111111111111",
       wallet: "0x2222222222222222222222222222222222222222",
       walletType: "DEPOSIT_WALLET"
-    },
-    async fetchClosedOnlyMode() {
+    }
+  };
+  const actions = {
+    async fetchClosedOnlyMode(receivedClient) {
+      assert.equal(receivedClient, client);
       return false;
     },
-    async fetchBalanceAllowance() {
+    async fetchBalanceAllowance(receivedClient, request) {
+      assert.equal(receivedClient, client);
+      assert.deepEqual(request, { assetType: "COLLATERAL" });
       return { balance: "5000000", allowances: {} };
     },
-    async placeMarketOrder(request) {
+    async placeMarketOrder(receivedClient, request) {
+      assert.equal(receivedClient, client);
       requests.push(request);
       return {
         ok: true,
@@ -130,7 +146,8 @@ test("requires manual confirmation before submitting one guarded FOK order", asy
         transactionsHashes: []
       };
     },
-    async cancelAll() {
+    async cancelAll(receivedClient) {
+      assert.equal(receivedClient, client);
       cancelAllCalls += 1;
       return { canceled: [] };
     }
@@ -140,6 +157,7 @@ test("requires manual confirmation before submitting one guarded FOK order", asy
     liveConfig: {
       enabled: true,
       client,
+      actions,
       checkGeoblock: async () => ({ blocked: false }),
       filePath,
       confirmationSeconds: 0,

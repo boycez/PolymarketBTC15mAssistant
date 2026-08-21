@@ -250,10 +250,10 @@ signal log as proof of an exchange fill.
 ## Live trading
 
 Use a dedicated, minimally funded Polymarket signer. Never commit or paste its
-private key into source files, chat, shell history, screenshots, environment
-variables, or logs. In local Live mode, the program requests it directly from
-the interactive terminal with input echo disabled. The key is kept only in
-process memory for the lifetime of that run.
+private key or Relayer API key into source files, chat, shell history,
+screenshots, environment variables, or logs. In local Live mode, the program
+requests both directly from the interactive terminal with input echo disabled.
+They are kept only in process memory for the lifetime of that run.
 
 Non-secret local settings are read from:
 
@@ -283,11 +283,18 @@ Live startup displays this prompt before opening the dashboard:
 
 ```text
 Polymarket signer private key (hidden):
+Polymarket Relayer API key (hidden):
 ```
 
 Paste or type a `0x`-prefixed 32-byte private key and press `Enter`. No key
 characters are displayed. Press `Esc` or `Ctrl+C` to cancel. Non-interactive
 stdin fails closed because it cannot securely request the key.
+
+Create the Relayer API key under `polymarket.com → Settings → API Keys →
+Relayer API Keys`. The Signer Address shown there must match the address derived
+from the private key. The program derives that address automatically when it
+builds the Relayer authorization; a mismatch between signer and account wallet
+is rejected before authentication.
 
 The terminal shows the SDK-confirmed `client.account.wallet` and wallet type in
 masked form so the actual execution account can be verified before automatic

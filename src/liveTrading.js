@@ -1,7 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { OrderSide, OrderType, createSecureClient } from "@polymarket/client";
+import { OrderSide, OrderType, createSecureClient, relayerApiKey } from "@polymarket/client";
+import {
+  cancelAll,
+  fetchBalanceAllowance,
+  fetchClosedOnlyMode,
+  placeMarketOrder,
+  setupTradingApprovals
+} from "@polymarket/client/actions";
 import { privateKey } from "@polymarket/client/viem";
 
 import { getResolvedWinner, simulateFokBuy } from "./paperTrading.js";
@@ -35,6 +42,14 @@ const COLUMNS = [
   "settled_at",
   "error"
 ];
+
+const SDK_ACTIONS = Object.freeze({
+  cancelAll,
+  fetchBalanceAllowance,
+  fetchClosedOnlyMode,
+  placeMarketOrder,
+  setupTradingApprovals
+});
 
 function finiteNumber(value) {
   const number = Number(value);
@@ -108,13 +123,23 @@ function baseUnitsToUsd(value) {
   }
 }
 
-export function buildSecureClientOptions({ privateKey: signerPrivateKey, walletAddress }) {
+export async function buildSecureClientOptions({
+  privateKey: signerPrivateKey,
+  relayerApiKey: relayerKey,
+  walletAddress
+}) {
   if (!signerPrivateKey) throw new Error("A signer private key is required when live trading is enabled.");
+  if (!relayerKey) throw new Error("A Polymarket Relayer API key is required for live trading.");
   if (!/^0x[0-9a-fA-F]{40}$/.test(walletAddress ?? "")) {
     throw new Error("An existing Polymarket trading wallet address is required for live trading.");
   }
+  const signer = privateKey(signerPrivateKey);
   return {
-    signer: privateKey(signerPrivateKey),
+    signer,
+    apiKey: relayerApiKey({
+      key: relayerKey,
+      address: await signer.getAddress()
+    }),
     wallet: walletAddress
   };
 }
@@ -136,14 +161,14 @@ export class LiveTrader {
     }
 
     if (!trader.client) {
-      trader.client = await createSecureClient(buildSecureClientOptions(config));
+      trader.client = await createSecureClient(await buildSecureClientOptions(config));
     }
 
     trader.accountIdentity = trader.client.account ?? null;
-    const closedOnly = await trader.client.fetchClosedOnlyMode();
+    const closedOnly = await trader.actions.fetchClosedOnlyMode(trader.client);
     if (closedOnly) throw new Error("Polymarket account is in closed-only mode; live entries are blocked.");
-    if (config.setupApprovals === true) await trader.client.setupTradingApprovals();
-    const collateral = await trader.client.fetchBalanceAllowance({ assetType: "COLLATERAL" });
+    if (config.setupApprovals === true) await trader.actions.setupTradingApprovals(trader.client);
+    const collateral = await trader.actions.fetchBalanceAllowance(trader.client, { assetType: "COLLATERAL" });
     const balanceUsd = baseUnitsToUsd(collateral?.balance);
     if (balanceUsd === null || balanceUsd < trader.stakeUsd) {
       throw new Error(`Insufficient Polymarket collateral balance for a $${trader.stakeUsd.toFixed(2)} live stake.`);
@@ -168,6 +193,7 @@ export class LiveTrader {
     settlementPollMs = 30_000,
     filePath = "./logs/live_trades.csv",
     client = null,
+    actions = SDK_ACTIONS,
     fetchMarket = null
   } = {}) {
     this.enabled = enabled;
@@ -186,6 +212,7 @@ export class LiveTrader {
     this.settlementPollMs = settlementPollMs;
     this.filePath = filePath;
     this.client = client;
+    this.actions = actions;
     this.accountIdentity = null;
     this.fetchMarket = fetchMarket ?? (async (trade) => {
       if (trade.market_id) return await fetchMarketById(trade.market_id);
@@ -293,7 +320,7 @@ export class LiveTrader {
     this.attemptedMarkets.add(marketSlug);
     let response;
     try {
-      response = await this.client.placeMarketOrder({
+      response = await this.actions.placeMarketOrder(this.client, {
         tokenId,
         side: OrderSide.BUY,
         amount: this.stakeUsd,
@@ -459,7 +486,7 @@ export class LiveTrader {
 
   async cancelAll() {
     if (!this.enabled || !this.ready) return null;
-    return await this.client.cancelAll();
+    return await this.actions.cancelAll(this.client);
   }
 
   requestArm() {
