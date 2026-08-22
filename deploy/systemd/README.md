@@ -35,7 +35,11 @@ sudo poly install
 - installs the Paper-only environment and hardened unit;
 - verifies the unit with `systemd-analyze verify`;
 - enables and starts the Engine;
-- adds the invoking `SUDO_USER` to the trusted `polymarket` group.
+- adds the invoking `SUDO_USER` to the trusted `polymarket-btc-assistant` group.
+
+`poly doctor` also requires the VM clock to report `NTPSynchronized=yes` through
+`timedatectl`; exact market boundaries and TWAP observation timestamps depend
+on a synchronized system clock.
 
 The environment file is created only when absent, so reinstalling does not
 overwrite local settings. Sign out and back in after the first installation so
@@ -60,6 +64,11 @@ reasons. The active strategy is selected from the internal registry with
 
 Research files are consumed directly for offline analysis. The deployment does
 not expose a reporting command, HTTP endpoint, or additional listener.
+
+Free disk space is checked hourly. Research writes pause below the configured
+threshold and emit a journal warning without stopping the Engine. Research
+health counters are logged once per hour, and no historical file is deleted
+automatically.
 
 ## Operate
 

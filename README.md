@@ -560,6 +560,18 @@ state, and final execution gate. Optional settings:
 - `STRATEGY_RESEARCH_FILE` (default: `./logs/research_events.jsonl`)
 - `STRATEGY_RESEARCH_INTERVAL_MS` (default: `15000`)
 
+The standardized market context records observation-only data quality: poll
+latency and a labeled mixed-semantics timestamp range; Kline age and closed state; available stream ages; and
+explicit reasons when REST ticker, CLOB quote, or order-book source timestamps
+are unavailable. Compact top-five ask depth is retained for both outcomes.
+These diagnostics do not block the V1.2 strategy.
+
+Every observation also includes counterfactual FOK quotes for both UP and DOWN
+using the same fee and depth-walking service as Paper and Live execution. Each
+quote records fillability, shares, notional, fee, average/worst/all-in price,
+slippage, and execution edge. The hypothetical stake follows
+`PAPER_TRADE_STAKE_USD`.
+
 Observed markets are stored in an atomic pending-state file across Engine
 restarts. After official resolution, one outcome event per market is appended
 to the daily outcome file:
@@ -574,6 +586,15 @@ captured price-to-beat. Optional settings:
 - `STRATEGY_OUTCOME_FILE` (default: `./logs/research_outcomes.jsonl`)
 - `STRATEGY_PENDING_MARKETS_FILE` (default: `./logs/research_pending_markets.json`)
 - `STRATEGY_OUTCOME_POLL_MS` (default: `30000`)
+- `STRATEGY_RESEARCH_HEALTH_INTERVAL_MS` (default: `3600000`)
+- `STRATEGY_RESEARCH_MIN_FREE_BYTES` (default: `536870912`, 512 MiB)
+
+Research collection checks free disk space hourly. Below the threshold,
+append-only research events pause and emit a journal warning while the small
+pending-outcome state continues best-effort persistence and the Engine and trading
+pipeline continue. A single hourly journal summary reports
+decision/outcome/pending/error counters and free space. Daily files are never
+deleted automatically.
 
 The JSONL files are intended for offline analysis and can be read directly over
 SSH without stopping the Engine. No reporting command or network endpoint is
@@ -586,7 +607,9 @@ registered strategy is `ta-edge@1.2.0`.
 
 The separate `Paper Trading` console section also shows total, settled and
 awaiting trades, wins and losses, win rate, realized PnL, realized return, and
-pending stake.
+pending stake. Observation-only account metrics include starting, realized and
+available equity, pending exposure, peak equity, current/maximum drawdown, and
+UTC daily PnL. They do not reject trades or size stakes.
 
 Optional environment variables:
 
@@ -598,6 +621,7 @@ Optional environment variables:
 - `PAPER_TRADE_MAX_SLIPPAGE` (default: `0.02`)
 - `PAPER_TRADE_REQUIRE_TREND_ALIGNMENT` (default: `true`)
 - `PAPER_TRADE_STAKE_USD` (default: `10`)
+- `PAPER_STARTING_EQUITY_USD` (default: `1000`)
 - `PAPER_TRADE_SETTLEMENT_POLL_MS` (default: `30000`)
 - `PAPER_TRADE_FILE` (default: `./logs/paper_trades.csv`)
 

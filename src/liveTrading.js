@@ -11,7 +11,8 @@ import {
 } from "@polymarket/client/actions";
 import { privateKey } from "@polymarket/client/viem";
 
-import { getResolvedWinner, simulateFokBuy } from "./paperTrading.js";
+import { quoteOutcomeExecution } from "./execution/quoteExecution.js";
+import { getResolvedWinner } from "./paperTrading.js";
 import { fetchMarketById, fetchMarketBySlug } from "./data/polymarket.js";
 import { formatRecommendationReason } from "./trading/strategy.js";
 import { atomicWriteFileSync } from "./utils.js";
@@ -59,11 +60,6 @@ const SDK_ACTIONS = Object.freeze({
 function finiteNumber(value) {
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
-}
-
-function floorToTick(value, tickSize) {
-  if (!Number.isFinite(tickSize) || tickSize <= 0) return value;
-  return Math.floor((value + Number.EPSILON) / tickSize) * tickSize;
 }
 
 function csvValue(value) {
@@ -320,24 +316,16 @@ export class LiveTrader {
     }
     if (nowMs - this.candidate.startedAtMs < this.confirmationMs) return this.getStatus(marketSlug, nowMs);
 
-    const orderBook = side === "UP" ? orderBooks?.up : orderBooks?.down;
     const tokenId = String(side === "UP" ? tokens?.upTokenId ?? "" : tokens?.downTokenId ?? "");
-    const bestAsk = finiteNumber(orderBook?.bestAsk);
-    const tickSize = finiteNumber(orderBook?.tickSize) ?? finiteNumber(market.orderPriceMinTickSize) ?? 0.01;
-    const minOrderSize = finiteNumber(orderBook?.minOrderSize) ?? finiteNumber(market.orderMinSize) ?? 0;
     const modelProbability = finiteNumber(side === "UP" ? modelUp : modelDown);
-    const maxPrice = bestAsk === null ? null : Math.min(0.99, floorToTick(bestAsk + this.maxSlippage, tickSize));
-    const fill = maxPrice === null ? { filled: false } : simulateFokBuy({
-      asks: orderBook?.asks,
+    const quote = quoteOutcomeExecution({
+      orderBook: side === "UP" ? orderBooks?.up : orderBooks?.down,
+      market,
       stakeUsd: this.stakeUsd,
-      maxPrice,
-      minOrderSize,
-      feesEnabled: market.feesEnabled === true,
-      feeSchedule: market.feeSchedule ?? null
+      maxSlippage: this.maxSlippage,
+      modelProbability
     });
-    const executionEdge = fill.filled && modelProbability !== null
-      ? modelProbability - (fill.totalCost / fill.shares)
-      : null;
+    const { bestAsk, maxPrice, fill, executionEdge } = quote;
     const endTimeMs = new Date(market.endDate).getTime();
     let rejectionReason = null;
     if (!tokenId) {

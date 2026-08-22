@@ -12,6 +12,20 @@ export function strategyConfigFingerprint(config) {
   return crypto.createHash("sha256").update(JSON.stringify(stableValue(config))).digest("hex").slice(0, 16);
 }
 
+export function strategyExecutionFingerprint(config) {
+  const keys = [
+    "strategy",
+    "confirmationSeconds",
+    "minRemainingMinutes",
+    "maxRemainingMinutes",
+    "minExecutionEdge",
+    "maxSlippage",
+    "requireTrendAlignment",
+    "stakeUsd"
+  ];
+  return strategyConfigFingerprint(Object.fromEntries(keys.map((key) => [key, config?.[key] ?? null])));
+}
+
 export function resolveCodeCommit(repositoryRoot = process.cwd()) {
   const explicit = String(process.env.APP_COMMIT ?? "").trim();
   if (explicit) return explicit;

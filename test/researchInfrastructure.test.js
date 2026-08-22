@@ -8,7 +8,7 @@ import { DecisionResearchRecorder } from "../src/research/decisionRecorder.js";
 import { appendDailyJsonl, dailyJsonlPath, listJsonlFiles, readJsonlFiles } from "../src/research/jsonlStore.js";
 import { MarketOutcomeTracker } from "../src/research/outcomeTracker.js";
 import { RESEARCH_EVENT_TYPES, validateResearchEvent } from "../src/research/schema.js";
-import { resolveCodeCommit, strategyConfigFingerprint } from "../src/research/strategyIdentity.js";
+import { resolveCodeCommit, strategyConfigFingerprint, strategyExecutionFingerprint } from "../src/research/strategyIdentity.js";
 import { atomicWriteFileSync } from "../src/utils.js";
 
 test("creates stable strategy config fingerprints", () => {
@@ -17,6 +17,14 @@ test("creates stable strategy config fingerprints", () => {
     strategyConfigFingerprint({ nested: { limit: 2, enabled: true }, threshold: 0.1 })
   );
   assert.notEqual(strategyConfigFingerprint({ threshold: 0.1 }), strategyConfigFingerprint({ threshold: 0.2 }));
+  assert.equal(
+    strategyExecutionFingerprint({ strategy: "test", minExecutionEdge: 0.1, stakeUsd: 10 }),
+    strategyExecutionFingerprint({ strategy: "test", minExecutionEdge: 0.1, stakeUsd: 10, startingEquityUsd: 1_000, filePath: "other.csv" })
+  );
+  assert.notEqual(
+    strategyExecutionFingerprint({ strategy: "test", minExecutionEdge: 0.1, stakeUsd: 10 }),
+    strategyExecutionFingerprint({ strategy: "test", minExecutionEdge: 0.2, stakeUsd: 10 })
+  );
 });
 
 test("records research events on state changes and configured intervals", () => {

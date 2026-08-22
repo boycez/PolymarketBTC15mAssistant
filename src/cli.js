@@ -9,6 +9,8 @@ import {
   engineInvocation,
   foregroundInvocation,
   installationOwnershipInvocations,
+  ntpCheckInvocation,
+  parseNtpSynchronized,
   POLY_HELP,
   parsePolyCommand,
   updateInvocations
@@ -120,6 +122,10 @@ function doctor() {
   add(fs.existsSync(path.join(REPOSITORY_ROOT, "package.json")), "Application", REPOSITORY_ROOT);
 
   if (process.platform === "linux") {
+    const ntpInvocation = ntpCheckInvocation();
+    const ntp = run(ntpInvocation.command, ntpInvocation.args, { inherit: false, allowFailure: true });
+    const synchronized = ntp.status === 0 && parseNtpSynchronized(ntp.stdout);
+    add(synchronized, "System clock", ntp.status === 0 ? (synchronized ? "NTP synchronized" : "NTP not synchronized") : "timedatectl unavailable");
     add(fs.existsSync(SERVICE_UNIT), "systemd unit", SERVICE_UNIT);
     const active = run("systemctl", ["is-active", "--quiet", SERVICE_NAME], { inherit: false, allowFailure: true });
     add(active.status === 0, "Engine service", active.status === 0 ? "active" : "inactive");

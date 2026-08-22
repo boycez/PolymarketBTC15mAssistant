@@ -61,7 +61,11 @@ function paperSnapshot() {
         win_rate_pct: 44.4,
         realized_pnl_usd: 3.05,
         realized_return_pct: 3.4,
-        pending_stake_usd: 0
+        pending_stake_usd: 0,
+        available_equity_usd: 1003.05,
+        max_drawdown_usd: 12,
+        max_drawdown_pct: 1.2,
+        daily_pnl_usd: 3.05
       }
     },
     session: {}
@@ -80,6 +84,8 @@ test("renders a deterministic Paper dashboard from a runtime snapshot", () => {
   assert.match(output, /Strategy:\s+ta-edge@1\.2\.0 \| a1b2c3d4e5f60708/);
   assert.match(output, /Status:\s+waiting: quoted edge below 10\.0%/);
   assert.match(output, /Record:\s+4W \/ 5L \| 44\.4%/);
+  assert.match(output, /Available Equity:\s+\$1,003\.05/);
+  assert.match(output, /Max Drawdown:\s+\$12\.00 \(1\.2%\)/);
   assert.match(output, /ET \| Session:\s+00:08:13 \| Asia/);
   assert.equal(output.split("\n").find((line) => /^-+$/.test(line))?.length, 60);
 });

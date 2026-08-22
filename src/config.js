@@ -3,7 +3,7 @@ import fs from "node:fs";
 import { resolveTradingMode } from "./trading/mode.js";
 import { TA_EDGE_V1_2_FOK } from "./trading/strategy.js";
 import { resolveStrategyPlugin } from "./strategies/registry.js";
-import { strategyConfigFingerprint } from "./research/strategyIdentity.js";
+import { strategyExecutionFingerprint } from "./research/strategyIdentity.js";
 
 const LIVE_CONFIG_KEYS = new Set([
   "walletAddress",
@@ -23,10 +23,11 @@ const paperTradingConfig = {
   strategyId: paperStrategyPlugin.id,
   strategyVersion: paperStrategyPlugin.version,
   stakeUsd: Number(process.env.PAPER_TRADE_STAKE_USD || 10),
+  startingEquityUsd: positiveNumber("PAPER_STARTING_EQUITY_USD", 1_000),
   settlementPollMs: Number(process.env.PAPER_TRADE_SETTLEMENT_POLL_MS || 30_000),
   filePath: process.env.PAPER_TRADE_FILE || "./logs/paper_trades.csv"
 };
-paperTradingConfig.configFingerprint = strategyConfigFingerprint(paperTradingConfig);
+paperTradingConfig.configFingerprint = strategyExecutionFingerprint(paperTradingConfig);
 
 function loadLocalLiveConfig() {
   if (tradingMode !== "live" || !fs.existsSync(liveConfigPath)) return {};
@@ -73,6 +74,12 @@ function positiveNumber(envName, defaultValue) {
   if (!Number.isFinite(value) || value <= 0) {
     throw new Error(`${envName} must be a positive number.`);
   }
+  return value;
+}
+
+function nonNegativeNumber(envName, defaultValue) {
+  const value = Number(process.env[envName] ?? defaultValue);
+  if (!Number.isFinite(value) || value < 0) throw new Error(`${envName} must be zero or greater.`);
   return value;
 }
 
@@ -134,7 +141,9 @@ export const CONFIG = {
     intervalMs: positiveNumber("STRATEGY_RESEARCH_INTERVAL_MS", 15_000),
     outcomeFilePath: process.env.STRATEGY_OUTCOME_FILE || "./logs/research_outcomes.jsonl",
     pendingFilePath: process.env.STRATEGY_PENDING_MARKETS_FILE || "./logs/research_pending_markets.json",
-    outcomePollIntervalMs: positiveNumber("STRATEGY_OUTCOME_POLL_MS", 30_000)
+    outcomePollIntervalMs: positiveNumber("STRATEGY_OUTCOME_POLL_MS", 30_000),
+    healthIntervalMs: positiveNumber("STRATEGY_RESEARCH_HEALTH_INTERVAL_MS", 60 * 60_000),
+    minFreeBytes: nonNegativeNumber("STRATEGY_RESEARCH_MIN_FREE_BYTES", 512 * 1024 * 1024)
   },
 
   polymarket: {

@@ -27,6 +27,7 @@ export class MarketOutcomeTracker {
     pollIntervalMs = 30_000,
     fetchTimeoutMs = 10_000,
     maxMarketsPerPoll = 4,
+    healthMonitor = null,
     fetchMarket
   } = {}) {
     if (typeof fetchMarket !== "function") throw new Error("MarketOutcomeTracker requires fetchMarket().");
@@ -37,11 +38,13 @@ export class MarketOutcomeTracker {
     this.fetchTimeoutMs = fetchTimeoutMs;
     this.maxMarketsPerPoll = maxMarketsPerPoll;
     this.fetchMarket = fetchMarket;
+    this.healthMonitor = healthMonitor;
     this.lastPollAtMs = 0;
     this.lastError = null;
     this.settlementInFlight = false;
     this.resolved = this.#loadResolved();
     this.pending = this.#loadPending();
+    this.healthMonitor?.updatePending(this.pending.size);
   }
 
   observeMarket(market, reference = {}) {
@@ -58,6 +61,7 @@ export class MarketOutcomeTracker {
         this.pending.set(slug, { ...existing, priceToBeatE18, priceToBeat });
         this.#savePending();
         this.lastError = null;
+        this.healthMonitor?.updatePending(this.pending.size);
         return true;
       } catch (error) {
         this.pending.set(slug, existing);
@@ -77,10 +81,11 @@ export class MarketOutcomeTracker {
       });
       this.#savePending();
       this.lastError = null;
+      this.healthMonitor?.updatePending(this.pending.size);
       return true;
     } catch (error) {
-      this.pending.delete(slug);
       this.lastError = error?.message ?? String(error);
+      this.healthMonitor?.recordError(error);
       return false;
     }
   }
@@ -107,6 +112,7 @@ export class MarketOutcomeTracker {
           const market = await withTimeout(this.fetchMarket(pendingMarket), this.fetchTimeoutMs);
           const winner = getResolvedWinner(market);
           if (!winner) continue;
+          if (this.healthMonitor && !this.healthMonitor.canWrite(nowMs)) continue;
           const event = createResearchEvent(RESEARCH_EVENT_TYPES.OUTCOME, {
             market: {
               id: pendingMarket.id,
@@ -127,8 +133,10 @@ export class MarketOutcomeTracker {
           pendingChanged = true;
           settled.push(event);
           this.lastError = null;
+          this.healthMonitor?.recordOutcome();
         } catch (error) {
           this.lastError = error?.message ?? String(error);
+          this.healthMonitor?.recordError(error);
         }
       }
       if (pendingChanged) {
@@ -136,11 +144,13 @@ export class MarketOutcomeTracker {
           this.#savePending();
         } catch (error) {
           this.lastError = error?.message ?? String(error);
+          this.healthMonitor?.recordError(error);
         }
       }
       return settled;
     } finally {
       this.settlementInFlight = false;
+      this.healthMonitor?.updatePending(this.pending.size);
     }
   }
 

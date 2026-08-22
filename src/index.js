@@ -33,8 +33,12 @@ import { StreamHealthMonitor } from "./engine/streamHealth.js";
 import { resolveStrategyPlugin } from "./strategies/registry.js";
 import { strategyKey } from "./strategies/contract.js";
 import { DecisionResearchRecorder } from "./research/decisionRecorder.js";
-import { resolveCodeCommit, strategyConfigFingerprint } from "./research/strategyIdentity.js";
+import { resolveCodeCommit, strategyExecutionFingerprint } from "./research/strategyIdentity.js";
 import { MarketOutcomeTracker } from "./research/outcomeTracker.js";
+import { buildStrategyMarketContext } from "./strategyRuntime/contextBuilder.js";
+import { quoteBothOutcomes } from "./execution/quoteExecution.js";
+import { ResearchHealthMonitor } from "./research/healthMonitor.js";
+import path from "node:path";
 
 function countVwapCrosses(closes, vwapSeries, lookback) {
   if (closes.length < lookback || vwapSeries.length < lookback) return null;
@@ -348,15 +352,22 @@ export async function runApplication({
     id: strategyPlugin.id,
     version: strategyPlugin.version,
     key: strategyKey(strategyPlugin),
-    configFingerprint: strategyConfigFingerprint(activeTradingConfig),
+    configFingerprint: strategyExecutionFingerprint(activeTradingConfig),
     codeCommit: resolveCodeCommit()
   };
-  const researchRecorder = new DecisionResearchRecorder(CONFIG.research);
+  const researchHealth = new ResearchHealthMonitor({
+    storagePath: path.dirname(CONFIG.research.filePath),
+    minFreeBytes: CONFIG.research.minFreeBytes,
+    checkIntervalMs: CONFIG.research.healthIntervalMs,
+    reportIntervalMs: CONFIG.research.healthIntervalMs
+  });
+  const researchRecorder = new DecisionResearchRecorder({ ...CONFIG.research, healthMonitor: researchHealth });
   const outcomeTracker = new MarketOutcomeTracker({
     filePath: CONFIG.research.outcomeFilePath,
     eventFilePath: CONFIG.research.filePath,
     pendingFilePath: CONFIG.research.pendingFilePath,
     pollIntervalMs: CONFIG.research.outcomePollIntervalMs,
+    healthMonitor: researchHealth,
     fetchMarket: async (pendingMarket) => {
       if (pendingMarket.id) {
         const market = await fetchMarketById(pendingMarket.id);
@@ -553,10 +564,21 @@ export async function runApplication({
 
       const marketUp = poly.ok ? poly.prices.up : null;
       const marketDown = poly.ok ? poly.prices.down : null;
-      const strategyEvaluation = strategyPlugin.evaluate({
+      const strategyContext = buildStrategyMarketContext({
+        nowMs: marketDataReceivedAtMs,
+        pollStartedAtMs,
         remainingMinutes: timeLeftMin,
         windowMinutes: CONFIG.candleWindowMinutes,
         marketPrices: { up: marketUp, down: marketDown },
+        market: poly.ok ? poly.market : null,
+        orderBooks: poly.ok ? poly.orderbook : null,
+        latestKline: klines1m.length ? klines1m[klines1m.length - 1] : null,
+        binanceWsAtMs: wsTick?.ts ?? null,
+        polymarketCurrentAtMs: polymarketWsTick?.updatedAt ?? null,
+        chainlinkAtMs: chainlink?.updatedAt ?? null,
+        twapObservedAtMs: reference.currentObservedAtMs ?? null,
+        twapFreshnessMs: reference.freshnessMs ?? null,
+        streamHealth: streamHealthMonitor.getSnapshot(),
         indicators: {
           price: lastPrice,
           vwap: vwapNow,
@@ -569,6 +591,7 @@ export async function runApplication({
           failedVwapReclaim
         }
       });
+      const strategyEvaluation = strategyPlugin.evaluate(strategyContext.strategy);
       const { scored, timeAware, edge, recommendation: rec } = strategyEvaluation;
 
       const vwapSlopeLabel = vwapSlope === null ? "-" : vwapSlope > 0 ? "UP" : vwapSlope < 0 ? "DOWN" : "FLAT";
@@ -612,33 +635,22 @@ export async function runApplication({
       const currentPrice = reference.currentTwap === null ? null : Number(reference.currentTwap);
       const priceToBeat = reference.priceToBeat === null ? null : Number(reference.priceToBeat);
       const marketSlug = poly.ok ? String(poly.market?.slug ?? "") : "";
+      const counterfactualExecution = quoteBothOutcomes({
+        orderBooks: poly.ok ? poly.orderbook : null,
+        market: poly.ok ? poly.market : null,
+        stakeUsd: CONFIG.paperTrading.stakeUsd,
+        maxSlippage: CONFIG.paperTrading.maxSlippage,
+        modelUp: timeAware.adjustedUp,
+        modelDown: timeAware.adjustedDown
+      });
 
       researchRecorder.record({
         schemaVersion: 1,
         recordedAt: new Date(marketDataReceivedAtMs).toISOString(),
         strategy: strategyIdentity,
-        market: {
-          id: poly.ok ? String(poly.market?.id ?? "") : "",
-          slug: marketSlug,
-          eventStartTime: poly.ok ? poly.market?.eventStartTime ?? poly.market?.startTime ?? poly.market?.startDate ?? null : null,
-          endDate: poly.ok ? poly.market?.endDate ?? null : null,
-          timeLeftMinutes: timeLeftMin,
-          upQuote: marketUp,
-          downQuote: marketDown
-        },
-        sources: {
-          pollStartedAt: new Date(pollStartedAtMs).toISOString(),
-          receivedAt: new Date(marketDataReceivedAtMs).toISOString(),
-          latestKlineOpenTimeMs: lastCandle?.openTime ?? null,
-          latestKlineCloseTimeMs: lastCandle?.closeTime ?? null,
-          latestKlineClosed: Number.isFinite(lastCandle?.closeTime) ? lastCandle.closeTime < marketDataReceivedAtMs : null,
-          binanceWsAtMs: wsTick?.ts ?? null,
-          polymarketCurrentAtMs: polymarketWsTick?.updatedAt ?? null,
-          chainlinkAtMs: chainlink?.updatedAt ?? null,
-          twapObservedAtMs: reference.currentObservedAtMs ?? null,
-          twapFreshnessMs: reference.freshnessMs ?? null,
-          streamHealth: streamHealthMonitor.getSnapshot()
-        },
+        market: strategyContext.market,
+        sources: strategyContext.sources,
+        dataQuality: strategyContext.dataQuality,
         indicators: {
           price: lastPrice,
           vwap: vwapNow,
@@ -653,8 +665,14 @@ export async function runApplication({
         },
         decision: strategyEvaluation,
         execution: {
-          upBook: poly.ok ? { bestBid: poly.orderbook.up.bestBid, bestAsk: poly.orderbook.up.bestAsk, spread: poly.orderbook.up.spread, askLiquidity: poly.orderbook.up.askLiquidity } : null,
-          downBook: poly.ok ? { bestBid: poly.orderbook.down.bestBid, bestAsk: poly.orderbook.down.bestAsk, spread: poly.orderbook.down.spread, askLiquidity: poly.orderbook.down.askLiquidity } : null,
+          counterfactual: counterfactualExecution,
+          paperAccount: tradingRuntime.mode === "paper" ? {
+            startingEquityUsd: tradingSummary.starting_equity_usd,
+            availableEquityUsd: tradingSummary.available_equity_usd,
+            pendingExposureUsd: tradingSummary.pending_exposure_usd,
+            maxDrawdownUsd: tradingSummary.max_drawdown_usd,
+            dailyPnlUsd: tradingSummary.daily_pnl_usd
+          } : null,
           status: tradingStatus.state,
           gateReason: tradingStatus.text
         },
@@ -793,6 +811,7 @@ export async function runApplication({
 
       if (poly.ok && poly.market) outcomeTracker.observeMarket(poly.market, reference);
       void outcomeTracker.settlePending(marketDataReceivedAtMs);
+      researchHealth.maybeReport(marketDataReceivedAtMs);
 
       if (marketSlug && tradingStatus.state === "WAITING" && tradingStatus.text.startsWith("waiting:")) {
         const gateReason = tradingStatus.text.slice("waiting:".length).trim();

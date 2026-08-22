@@ -10,6 +10,8 @@ import {
   engineInvocation,
   foregroundInvocation,
   installationOwnershipInvocations,
+  ntpCheckInvocation,
+  parseNtpSynchronized,
   parsePolyCommand,
   updateInvocations
 } from "../src/cli/commands.js";
@@ -84,6 +86,16 @@ test("maps foreground and systemd commands without shell strings", () => {
     args: ["-u", "polymarket-btc-assistant.service", "-f"],
     privileged: true
   });
+});
+
+test("maps and parses the Linux NTP synchronization check", () => {
+  assert.deepEqual(ntpCheckInvocation(), {
+    command: "timedatectl",
+    args: ["show", "--property=NTPSynchronized", "--value"],
+    privileged: false
+  });
+  assert.equal(parseNtpSynchronized("yes\n"), true);
+  assert.equal(parseNtpSynchronized("no\n"), false);
 });
 
 test("runs the CLI when invoked through an npm-style symbolic link", () => {

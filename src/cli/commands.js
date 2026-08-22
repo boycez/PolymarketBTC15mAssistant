@@ -70,6 +70,18 @@ export function engineInvocation(action) {
   };
 }
 
+export function ntpCheckInvocation() {
+  return {
+    command: "timedatectl",
+    args: ["show", "--property=NTPSynchronized", "--value"],
+    privileged: false
+  };
+}
+
+export function parseNtpSynchronized(output) {
+  return String(output ?? "").trim().toLowerCase() === "yes";
+}
+
 export function updateInvocations({ nodeExecutable, repositoryRoot }) {
   return [
     { command: "systemctl", args: ["stop", ENGINE_SERVICE] },

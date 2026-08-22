@@ -105,6 +105,9 @@ test("records one paper trade after a stable signal", () => {
   assert.equal(summary.settled_stake_usd, 0);
   assert.equal(summary.realized_pnl_usd, 0);
   assert.equal(summary.realized_return_pct, 0);
+  assert.equal(summary.starting_equity_usd, 1_000);
+  assert.equal(summary.available_equity_usd, 990);
+  assert.equal(summary.pending_exposure_usd, 10);
 });
 
 test("resets confirmation when the recommendation disappears", () => {
@@ -270,7 +273,7 @@ test("settles a winning trade from the official resolved outcome", async () => {
   assert.equal(trader.trades[0].status, "SETTLED");
   assert.equal(trader.trades[0].result, "WIN");
 
-  const summary = trader.getSummary();
+  const summary = trader.getSummary(20_000);
   assert.equal(summary.settled_trades, 1);
   assert.equal(summary.pending_trades, 0);
   assert.equal(summary.wins, 1);
@@ -280,6 +283,11 @@ test("settles a winning trade from the official resolved outcome", async () => {
   assert.equal(summary.realized_pnl_usd, 15);
   assert.equal(summary.realized_return_pct, 150);
   assert.equal(summary.pending_stake_usd, 0);
+  assert.equal(summary.realized_equity_usd, 1_015);
+  assert.equal(summary.available_equity_usd, 1_015);
+  assert.equal(summary.peak_equity_usd, 1_015);
+  assert.equal(summary.max_drawdown_usd, 0);
+  assert.equal(summary.daily_pnl_usd, 15);
 });
 
 test("marks a settled trade as a loss when the other outcome wins", async () => {
@@ -318,4 +326,19 @@ test("does not infer a winner before official resolution", () => {
     outcomes: '["Up", "Down"]',
     outcomePrices: '["1", "0"]'
   }), null);
+});
+
+test("reports peak-to-trough Paper drawdown against the contemporaneous peak", () => {
+  const trader = createTrader({ startingEquityUsd: 100 });
+  trader.trades = [
+    { status: "SETTLED", side: "UP", winner: "UP", pnl: 20, stake_usd: 10, payout: 30, settled_at: "2026-08-22T00:01:00Z" },
+    { status: "SETTLED", side: "UP", winner: "DOWN", pnl: -30, stake_usd: 30, payout: 0, settled_at: "2026-08-22T00:02:00Z" }
+  ];
+
+  const summary = trader.getSummary(Date.parse("2026-08-22T01:00:00Z"));
+  assert.equal(summary.realized_equity_usd, 90);
+  assert.equal(summary.peak_equity_usd, 120);
+  assert.equal(summary.max_drawdown_usd, 30);
+  assert.equal(summary.max_drawdown_pct, 25);
+  assert.equal(summary.daily_pnl_usd, -10);
 });
