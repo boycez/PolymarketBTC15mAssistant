@@ -50,11 +50,16 @@ The unit creates `/run/polymarket-btc-assistant` with mode `0750` on every boot.
 Unix socket is `/run/polymarket-btc-assistant/engine.sock` with mode `0660`; only the
 service owner and trusted group can access it. No TCP listener is opened.
 
-Strategy research observations are appended to
-`logs/research_events.jsonl`. They include strategy identity, configuration
+Strategy research observations rotate daily as
+`logs/research_events-YYYY-MM-DD.jsonl`. Official market resolutions rotate as
+`logs/research_outcomes-YYYY-MM-DD.jsonl`, with unresolved markets retained
+atomically across restarts. These logs include strategy identity, configuration
 fingerprint, source timing, model diagnostics, compact book state, and gate
 reasons. The active strategy is selected from the internal registry with
 `PAPER_TRADE_STRATEGY`; arbitrary external code is never loaded.
+
+Research files are consumed directly for offline analysis. The deployment does
+not expose a reporting command, HTTP endpoint, or additional listener.
 
 ## Operate
 

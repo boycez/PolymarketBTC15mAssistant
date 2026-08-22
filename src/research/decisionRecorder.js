@@ -1,5 +1,5 @@
-import fs from "node:fs";
-import path from "node:path";
+import { appendDailyJsonl } from "./jsonlStore.js";
+import { createResearchEvent, RESEARCH_EVENT_TYPES } from "./schema.js";
 
 export class DecisionResearchRecorder {
   constructor({ filePath = "./logs/research_events.jsonl", intervalMs = 15_000 } = {}) {
@@ -26,8 +26,8 @@ export class DecisionResearchRecorder {
     if (stateKey === this.lastStateKey && nowMs - this.lastRecordedAtMs < this.intervalMs) return false;
 
     try {
-      fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
-      fs.appendFileSync(this.filePath, `${JSON.stringify(event)}\n`, "utf8");
+      const researchEvent = createResearchEvent(RESEARCH_EVENT_TYPES.DECISION, event, nowMs);
+      appendDailyJsonl(this.filePath, researchEvent, nowMs);
       this.lastRecordedAtMs = nowMs;
       this.lastStateKey = stateKey;
       this.lastError = null;

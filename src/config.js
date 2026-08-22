@@ -131,7 +131,10 @@ export const CONFIG = {
 
   research: {
     filePath: process.env.STRATEGY_RESEARCH_FILE || "./logs/research_events.jsonl",
-    intervalMs: positiveNumber("STRATEGY_RESEARCH_INTERVAL_MS", 15_000)
+    intervalMs: positiveNumber("STRATEGY_RESEARCH_INTERVAL_MS", 15_000),
+    outcomeFilePath: process.env.STRATEGY_OUTCOME_FILE || "./logs/research_outcomes.jsonl",
+    pendingFilePath: process.env.STRATEGY_PENDING_MARKETS_FILE || "./logs/research_pending_markets.json",
+    outcomePollIntervalMs: positiveNumber("STRATEGY_OUTCOME_POLL_MS", 30_000)
   },
 
   polymarket: {

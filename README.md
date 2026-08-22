@@ -546,10 +546,10 @@ quoted edges, regime, remaining time, recommendation, and final gate reason. It
 does not change the strategy or record credentials.
 
 Detailed research observations are appended every 15 seconds and whenever the
-decision state changes to:
+decision state changes. Files rotate automatically at each UTC date boundary:
 
 ```text
-logs/research_events.jsonl
+logs/research_events-YYYY-MM-DD.jsonl
 ```
 
 Each JSON line contains the strategy id/version, configuration fingerprint,
@@ -559,6 +559,25 @@ state, and final execution gate. Optional settings:
 
 - `STRATEGY_RESEARCH_FILE` (default: `./logs/research_events.jsonl`)
 - `STRATEGY_RESEARCH_INTERVAL_MS` (default: `15000`)
+
+Observed markets are stored in an atomic pending-state file across Engine
+restarts. After official resolution, one outcome event per market is appended
+to the daily outcome file:
+
+```text
+logs/research_outcomes-YYYY-MM-DD.jsonl
+```
+
+Outcome events include the official winner, market timing, resolution time, and
+captured price-to-beat. Optional settings:
+
+- `STRATEGY_OUTCOME_FILE` (default: `./logs/research_outcomes.jsonl`)
+- `STRATEGY_PENDING_MARKETS_FILE` (default: `./logs/research_pending_markets.json`)
+- `STRATEGY_OUTCOME_POLL_MS` (default: `30000`)
+
+The JSONL files are intended for offline analysis and can be read directly over
+SSH without stopping the Engine. No reporting command or network endpoint is
+exposed by the application.
 
 Strategies are internal plugins selected from a validated registry. A plugin
 evaluates standardized market context but cannot fetch data, submit orders,

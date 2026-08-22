@@ -5,6 +5,7 @@ import { startChainlinkPriceStream } from "./data/chainlinkWs.js";
 import { startPolymarketChainlinkPriceStream } from "./data/polymarketLiveWs.js";
 import { startPolymarketTwapStream } from "./data/polymarketTwapWs.js";
 import {
+  fetchMarketById,
   fetchMarketBySlug,
   fetchLiveEventsBySeriesId,
   flattenEventMarkets,
@@ -33,6 +34,7 @@ import { resolveStrategyPlugin } from "./strategies/registry.js";
 import { strategyKey } from "./strategies/contract.js";
 import { DecisionResearchRecorder } from "./research/decisionRecorder.js";
 import { resolveCodeCommit, strategyConfigFingerprint } from "./research/strategyIdentity.js";
+import { MarketOutcomeTracker } from "./research/outcomeTracker.js";
 
 function countVwapCrosses(closes, vwapSeries, lookback) {
   if (closes.length < lookback || vwapSeries.length < lookback) return null;
@@ -350,6 +352,19 @@ export async function runApplication({
     codeCommit: resolveCodeCommit()
   };
   const researchRecorder = new DecisionResearchRecorder(CONFIG.research);
+  const outcomeTracker = new MarketOutcomeTracker({
+    filePath: CONFIG.research.outcomeFilePath,
+    eventFilePath: CONFIG.research.filePath,
+    pendingFilePath: CONFIG.research.pendingFilePath,
+    pollIntervalMs: CONFIG.research.outcomePollIntervalMs,
+    fetchMarket: async (pendingMarket) => {
+      if (pendingMarket.id) {
+        const market = await fetchMarketById(pendingMarket.id);
+        if (market) return market;
+      }
+      return await fetchMarketBySlug(pendingMarket.slug);
+    }
+  });
   const livePrivateKey = await acquireLivePrivateKey({
     mode: CONFIG.trading.mode,
     enabled: CONFIG.liveTrading.enabled
@@ -603,7 +618,10 @@ export async function runApplication({
         recordedAt: new Date(marketDataReceivedAtMs).toISOString(),
         strategy: strategyIdentity,
         market: {
+          id: poly.ok ? String(poly.market?.id ?? "") : "",
           slug: marketSlug,
+          eventStartTime: poly.ok ? poly.market?.eventStartTime ?? poly.market?.startTime ?? poly.market?.startDate ?? null : null,
+          endDate: poly.ok ? poly.market?.endDate ?? null : null,
           timeLeftMinutes: timeLeftMin,
           upQuote: marketUp,
           downQuote: marketDown
@@ -643,7 +661,9 @@ export async function runApplication({
         reference: {
           state: reference.state,
           tradingAllowed: reference.tradingAllowed,
-          reason: reference.reason
+          reason: reference.reason,
+          priceToBeatE18: reference.priceToBeatE18 ?? null,
+          priceToBeat: reference.priceToBeat ?? null
         }
       }, marketDataReceivedAtMs);
 
@@ -770,6 +790,9 @@ export async function runApplication({
         edge.edgeDown,
         reference.tradingAllowed && rec.action === "ENTER" ? `${rec.side}:${rec.phase}:${rec.strength}` : "NO_TRADE"
       ]);
+
+      if (poly.ok && poly.market) outcomeTracker.observeMarket(poly.market, reference);
+      void outcomeTracker.settlePending(marketDataReceivedAtMs);
 
       if (marketSlug && tradingStatus.state === "WAITING" && tradingStatus.text.startsWith("waiting:")) {
         const gateReason = tradingStatus.text.slice("waiting:".length).trim();
