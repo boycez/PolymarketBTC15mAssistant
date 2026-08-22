@@ -27,7 +27,7 @@ function section(title) {
 }
 
 function separator(width) {
-  return `${ANSI.white}${"─".repeat(width)}${ANSI.reset}`;
+  return `${ANSI.white}${"-".repeat(width)}${ANSI.reset}`;
 }
 
 function centerText(text, width) {

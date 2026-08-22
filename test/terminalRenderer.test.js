@@ -81,7 +81,7 @@ test("renders a deterministic Paper dashboard from a runtime snapshot", () => {
   assert.match(output, /Status:\s+waiting: quoted edge below 10\.0%/);
   assert.match(output, /Record:\s+4W \/ 5L \| 44\.4%/);
   assert.match(output, /ET \| Session:\s+00:08:13 \| Asia/);
-  assert.equal(output.split("\n").find((line) => /^─+$/.test(line))?.length, 60);
+  assert.equal(output.split("\n").find((line) => /^-+$/.test(line))?.length, 60);
 });
 
 test("renders Live account and pending confirmation details", () => {
