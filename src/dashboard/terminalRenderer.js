@@ -231,6 +231,7 @@ export function renderTerminalDashboard(snapshot, { width = 80 } = {}) {
     "",
     section(trading.sectionTitle ?? "Trading"),
     "",
+    trading.strategy?.key ? kv("Strategy:", `${trading.strategy.key} | ${trading.strategy.configFingerprint ?? "-"}`) : null,
     kv("Status:", trading.status?.text ?? "-"),
     live && account?.wallet ? kv("Trading Wallet:", maskAddress(account.wallet)) : null,
     live && Number.isFinite(account?.balanceUsd) ? kv("Available:", `$${formatNumber(account.balanceUsd, 2)} USDC`) : null,

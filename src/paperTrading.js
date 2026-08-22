@@ -3,9 +3,13 @@ import path from "node:path";
 
 import { fetchMarketById, fetchMarketBySlug } from "./data/polymarket.js";
 import { formatRecommendationReason } from "./trading/strategy.js";
+import { atomicWriteFileSync } from "./utils.js";
 
 const COLUMNS = [
   "strategy",
+  "strategy_id",
+  "strategy_version",
+  "config_fingerprint",
   "order_type",
   "market_id",
   "market_slug",
@@ -235,6 +239,9 @@ export class PaperTrader {
   constructor({
     enabled = true,
     strategy = "TA_EDGE_V1_2_FOK",
+    strategyId = "ta-edge",
+    strategyVersion = "1.2.0",
+    configFingerprint = "",
     confirmationSeconds = 30,
     minRemainingMinutes = 5,
     maxRemainingMinutes = 10,
@@ -248,6 +255,9 @@ export class PaperTrader {
   } = {}) {
     this.enabled = enabled;
     this.strategy = strategy;
+    this.strategyId = strategyId;
+    this.strategyVersion = strategyVersion;
+    this.configFingerprint = configFingerprint;
     this.confirmationMs = confirmationSeconds * 1_000;
     this.minRemainingMinutes = minRemainingMinutes;
     this.maxRemainingMinutes = maxRemainingMinutes;
@@ -378,6 +388,9 @@ export class PaperTrader {
 
     this.trades.push({
       strategy: this.strategy,
+      strategy_id: this.strategyId,
+      strategy_version: this.strategyVersion,
+      config_fingerprint: this.configFingerprint,
       order_type: "FOK",
       market_id: String(market.id ?? ""),
       market_slug: marketSlug,
@@ -541,6 +554,6 @@ export class PaperTrader {
     for (const trade of this.trades) {
       lines.push(COLUMNS.map((column) => csvValue(trade[column])).join(","));
     }
-    fs.writeFileSync(this.filePath, `${lines.join("\n")}\n`, "utf8");
+    atomicWriteFileSync(this.filePath, `${lines.join("\n")}\n`);
   }
 }

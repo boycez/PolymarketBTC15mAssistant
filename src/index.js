@@ -18,8 +18,6 @@ import { computeRsi, sma, slopeLast } from "./indicators/rsi.js";
 import { computeMacd } from "./indicators/macd.js";
 import { computeHeikenAshi, countConsecutive } from "./indicators/heikenAshi.js";
 import { detectRegime } from "./engines/regime.js";
-import { scoreDirection, applyTimeAwareness } from "./engines/probability.js";
-import { computeEdge, decide } from "./engines/edge.js";
 import { appendCsvRow, getCandleWindowTiming, sleep } from "./utils.js";
 import { startBinanceTradeStream } from "./data/binanceWs.js";
 import { applyGlobalProxyFromEnv } from "./net/proxy.js";
@@ -31,6 +29,10 @@ import { createRuntimeSnapshot } from "./dashboard/runtimeSnapshot.js";
 import { renderTerminalDashboard } from "./dashboard/terminalRenderer.js";
 import { pathToFileURL } from "node:url";
 import { StreamHealthMonitor } from "./engine/streamHealth.js";
+import { resolveStrategyPlugin } from "./strategies/registry.js";
+import { strategyKey } from "./strategies/contract.js";
+import { DecisionResearchRecorder } from "./research/decisionRecorder.js";
+import { resolveCodeCommit, strategyConfigFingerprint } from "./research/strategyIdentity.js";
 
 function countVwapCrosses(closes, vwapSeries, lookback) {
   if (closes.length < lookback || vwapSeries.length < lookback) return null;
@@ -338,6 +340,16 @@ export async function runApplication({
   onRuntimeReady = async () => {},
   externalControlsEnabled = false
 } = {}) {
+  const strategyPlugin = resolveStrategyPlugin(CONFIG.paperTrading.strategy);
+  const activeTradingConfig = CONFIG.trading.mode === "live" ? CONFIG.liveTrading : CONFIG.paperTrading;
+  const strategyIdentity = {
+    id: strategyPlugin.id,
+    version: strategyPlugin.version,
+    key: strategyKey(strategyPlugin),
+    configFingerprint: strategyConfigFingerprint(activeTradingConfig),
+    codeCommit: resolveCodeCommit()
+  };
+  const researchRecorder = new DecisionResearchRecorder(CONFIG.research);
   const livePrivateKey = await acquireLivePrivateKey({
     mode: CONFIG.trading.mode,
     enabled: CONFIG.liveTrading.enabled
@@ -351,6 +363,9 @@ export async function runApplication({
     paperConfig: CONFIG.paperTrading,
     liveConfig: {
       ...CONFIG.liveTrading,
+      strategyId: strategyIdentity.id,
+      strategyVersion: strategyIdentity.version,
+      configFingerprint: strategyIdentity.configFingerprint,
       privateKey: livePrivateKey,
       relayerApiKey: liveRelayerApiKey
     }
@@ -445,6 +460,7 @@ export async function runApplication({
 
   while (true) {
     const timing = getCandleWindowTiming(CONFIG.candleWindowMinutes);
+    const pollStartedAtMs = Date.now();
 
     const wsTick = binanceStream.getLast();
     const wsPrice = wsTick?.price ?? null;
@@ -469,6 +485,7 @@ export async function runApplication({
         chainlinkPromise,
         fetchPolymarketSnapshot()
       ]);
+      const marketDataReceivedAtMs = Date.now();
 
       const settlementMs = poly.ok && poly.market?.endDate ? new Date(poly.market.endDate).getTime() : null;
       const settlementLeftMin = settlementMs ? (settlementMs - Date.now()) / 60_000 : null;
@@ -519,25 +536,25 @@ export async function runApplication({
         volumeAvg
       });
 
-      const scored = scoreDirection({
-        price: lastPrice,
-        vwap: vwapNow,
-        vwapSlope,
-        rsi: rsiNow,
-        rsiSlope,
-        macd,
-        heikenColor: consec.color,
-        heikenCount: consec.count,
-        failedVwapReclaim
-      });
-
-      const timeAware = applyTimeAwareness(scored.rawUp, timeLeftMin, CONFIG.candleWindowMinutes);
-
       const marketUp = poly.ok ? poly.prices.up : null;
       const marketDown = poly.ok ? poly.prices.down : null;
-      const edge = computeEdge({ modelUp: timeAware.adjustedUp, modelDown: timeAware.adjustedDown, marketYes: marketUp, marketNo: marketDown });
-
-      const rec = decide({ remainingMinutes: timeLeftMin, edgeUp: edge.edgeUp, edgeDown: edge.edgeDown, modelUp: timeAware.adjustedUp, modelDown: timeAware.adjustedDown });
+      const strategyEvaluation = strategyPlugin.evaluate({
+        remainingMinutes: timeLeftMin,
+        windowMinutes: CONFIG.candleWindowMinutes,
+        marketPrices: { up: marketUp, down: marketDown },
+        indicators: {
+          price: lastPrice,
+          vwap: vwapNow,
+          vwapSlope,
+          rsi: rsiNow,
+          rsiSlope,
+          macd,
+          heikenColor: consec.color,
+          heikenCount: consec.count,
+          failedVwapReclaim
+        }
+      });
+      const { scored, timeAware, edge, recommendation: rec } = strategyEvaluation;
 
       const vwapSlopeLabel = vwapSlope === null ? "-" : vwapSlope > 0 ? "UP" : vwapSlope < 0 ? "DOWN" : "FLAT";
 
@@ -580,6 +597,55 @@ export async function runApplication({
       const currentPrice = reference.currentTwap === null ? null : Number(reference.currentTwap);
       const priceToBeat = reference.priceToBeat === null ? null : Number(reference.priceToBeat);
       const marketSlug = poly.ok ? String(poly.market?.slug ?? "") : "";
+
+      researchRecorder.record({
+        schemaVersion: 1,
+        recordedAt: new Date(marketDataReceivedAtMs).toISOString(),
+        strategy: strategyIdentity,
+        market: {
+          slug: marketSlug,
+          timeLeftMinutes: timeLeftMin,
+          upQuote: marketUp,
+          downQuote: marketDown
+        },
+        sources: {
+          pollStartedAt: new Date(pollStartedAtMs).toISOString(),
+          receivedAt: new Date(marketDataReceivedAtMs).toISOString(),
+          latestKlineOpenTimeMs: lastCandle?.openTime ?? null,
+          latestKlineCloseTimeMs: lastCandle?.closeTime ?? null,
+          latestKlineClosed: Number.isFinite(lastCandle?.closeTime) ? lastCandle.closeTime < marketDataReceivedAtMs : null,
+          binanceWsAtMs: wsTick?.ts ?? null,
+          polymarketCurrentAtMs: polymarketWsTick?.updatedAt ?? null,
+          chainlinkAtMs: chainlink?.updatedAt ?? null,
+          twapObservedAtMs: reference.currentObservedAtMs ?? null,
+          twapFreshnessMs: reference.freshnessMs ?? null,
+          streamHealth: streamHealthMonitor.getSnapshot()
+        },
+        indicators: {
+          price: lastPrice,
+          vwap: vwapNow,
+          vwapSlope,
+          rsi: rsiNow,
+          rsiSlope,
+          macd: macd === null ? null : { value: macd.macd, signal: macd.signal, histogram: macd.hist, histogramDelta: macd.histDelta },
+          heikenColor: consec.color,
+          heikenCount: consec.count,
+          failedVwapReclaim,
+          regime: regimeInfo.regime
+        },
+        decision: strategyEvaluation,
+        execution: {
+          upBook: poly.ok ? { bestBid: poly.orderbook.up.bestBid, bestAsk: poly.orderbook.up.bestAsk, spread: poly.orderbook.up.spread, askLiquidity: poly.orderbook.up.askLiquidity } : null,
+          downBook: poly.ok ? { bestBid: poly.orderbook.down.bestBid, bestAsk: poly.orderbook.down.bestAsk, spread: poly.orderbook.down.spread, askLiquidity: poly.orderbook.down.askLiquidity } : null,
+          status: tradingStatus.state,
+          gateReason: tradingStatus.text
+        },
+        reference: {
+          state: reference.state,
+          tradingAllowed: reference.tradingAllowed,
+          reason: reference.reason
+        }
+      }, marketDataReceivedAtMs);
 
       if (CONFIG.polymarket.dumpMarketSnapshots && poly.ok && poly.market && priceToBeat === null) {
         const slug = safeFileSlug(poly.market.slug || poly.market.id || "market");
@@ -666,6 +732,7 @@ export async function runApplication({
         },
         trading: {
           mode: tradingRuntime.mode,
+          strategy: strategyIdentity,
           sectionTitle: tradingRuntime.sectionTitle,
           status: tradingStatus,
           account: tradingAccount,

@@ -545,13 +545,33 @@ This log includes the model probabilities, normalized market probabilities,
 quoted edges, regime, remaining time, recommendation, and final gate reason. It
 does not change the strategy or record credentials.
 
+Detailed research observations are appended every 15 seconds and whenever the
+decision state changes to:
+
+```text
+logs/research_events.jsonl
+```
+
+Each JSON line contains the strategy id/version, configuration fingerprint,
+code commit when available, source timestamps, raw and time-adjusted scores,
+both market edges, indicator values, compact order-book diagnostics, reference
+state, and final execution gate. Optional settings:
+
+- `STRATEGY_RESEARCH_FILE` (default: `./logs/research_events.jsonl`)
+- `STRATEGY_RESEARCH_INTERVAL_MS` (default: `15000`)
+
+Strategies are internal plugins selected from a validated registry. A plugin
+evaluates standardized market context but cannot fetch data, submit orders,
+bypass reference or risk gates, or write trading ledgers. The currently
+registered strategy is `ta-edge@1.2.0`.
+
 The separate `Paper Trading` console section also shows total, settled and
 awaiting trades, wins and losses, win rate, realized PnL, realized return, and
 pending stake.
 
 Optional environment variables:
 
-- `PAPER_TRADE_STRATEGY` (default: `TA_EDGE_V1_2_FOK`)
+- `PAPER_TRADE_STRATEGY` (default: `TA_EDGE_V1_2_FOK`; aliases: `ta-edge`, `ta-edge@1.2.0`)
 - `PAPER_TRADE_CONFIRMATION_SECONDS` (default: `30`)
 - `PAPER_TRADE_MIN_REMAINING_MINUTES` (default: `5`)
 - `PAPER_TRADE_MAX_REMAINING_MINUTES` (default: `10`)

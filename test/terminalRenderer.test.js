@@ -48,6 +48,7 @@ function paperSnapshot() {
     },
     trading: {
       mode: "paper",
+      strategy: { key: "ta-edge@1.2.0", configFingerprint: "a1b2c3d4e5f60708" },
       sectionTitle: "Paper Trading",
       status: { state: "WAITING", text: "waiting: quoted edge below 10.0%" },
       control: { state: "UNAVAILABLE", text: "Unavailable" },
@@ -76,6 +77,7 @@ test("renders a deterministic Paper dashboard from a runtime snapshot", () => {
   assert.match(output, /Recommendation:\s+BUY UP: MID GOOD/);
   assert.match(output, /Reference State:\s+READY/);
   assert.match(output, /PAPER TRADING/);
+  assert.match(output, /Strategy:\s+ta-edge@1\.2\.0 \| a1b2c3d4e5f60708/);
   assert.match(output, /Status:\s+waiting: quoted edge below 10\.0%/);
   assert.match(output, /Record:\s+4W \/ 5L \| 44\.4%/);
   assert.match(output, /ET \| Session:\s+00:08:13 \| Asia/);

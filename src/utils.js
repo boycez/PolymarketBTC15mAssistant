@@ -64,3 +64,19 @@ export function appendCsvRow(filePath, header, row) {
 
   fs.appendFileSync(filePath, `${line}\n`, "utf8");
 }
+
+export function atomicWriteFileSync(filePath, content) {
+  ensureDir(path.dirname(filePath));
+  const temporaryPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
+  try {
+    fs.writeFileSync(temporaryPath, content, "utf8");
+    fs.renameSync(temporaryPath, filePath);
+  } catch (error) {
+    try {
+      fs.rmSync(temporaryPath, { force: true });
+    } catch {
+      // Preserve the original write error.
+    }
+    throw error;
+  }
+}

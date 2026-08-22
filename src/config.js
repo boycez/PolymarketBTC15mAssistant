@@ -1,7 +1,9 @@
 import fs from "node:fs";
 
 import { resolveTradingMode } from "./trading/mode.js";
-import { TA_EDGE_V1_2_FOK, resolvePaperStrategy } from "./trading/strategy.js";
+import { TA_EDGE_V1_2_FOK } from "./trading/strategy.js";
+import { resolveStrategyPlugin } from "./strategies/registry.js";
+import { strategyConfigFingerprint } from "./research/strategyIdentity.js";
 
 const LIVE_CONFIG_KEYS = new Set([
   "walletAddress",
@@ -13,7 +15,18 @@ const LIVE_CONFIG_KEYS = new Set([
 ]);
 
 const tradingMode = resolveTradingMode();
+const paperStrategyPlugin = resolveStrategyPlugin(process.env.PAPER_TRADE_STRATEGY);
+const paperStrategyConfig = paperStrategyPlugin.resolveConfig(process.env);
 const liveConfigPath = process.env.LIVE_CONFIG_FILE || "./config/live.local.json";
+const paperTradingConfig = {
+  ...paperStrategyConfig,
+  strategyId: paperStrategyPlugin.id,
+  strategyVersion: paperStrategyPlugin.version,
+  stakeUsd: Number(process.env.PAPER_TRADE_STAKE_USD || 10),
+  settlementPollMs: Number(process.env.PAPER_TRADE_SETTLEMENT_POLL_MS || 30_000),
+  filePath: process.env.PAPER_TRADE_FILE || "./logs/paper_trades.csv"
+};
+paperTradingConfig.configFingerprint = strategyConfigFingerprint(paperTradingConfig);
 
 function loadLocalLiveConfig() {
   if (tradingMode !== "live" || !fs.existsSync(liveConfigPath)) return {};
@@ -85,12 +98,7 @@ export const CONFIG = {
     mode: tradingMode
   },
 
-  paperTrading: {
-    ...resolvePaperStrategy(),
-    stakeUsd: Number(process.env.PAPER_TRADE_STAKE_USD || 10),
-    settlementPollMs: Number(process.env.PAPER_TRADE_SETTLEMENT_POLL_MS || 30_000),
-    filePath: process.env.PAPER_TRADE_FILE || "./logs/paper_trades.csv"
-  },
+  paperTrading: paperTradingConfig,
 
   liveTrading: {
     enabled: tradingMode === "live",
@@ -119,6 +127,11 @@ export const CONFIG = {
     binanceStaleMs: positiveNumber("BINANCE_STREAM_STALE_MS", 30_000),
     polymarketLiveStaleMs: positiveNumber("POLYMARKET_LIVE_STREAM_STALE_MS", 15_000),
     twapStaleMs: positiveNumber("TWAP_STREAM_STALE_MS", 15_000)
+  },
+
+  research: {
+    filePath: process.env.STRATEGY_RESEARCH_FILE || "./logs/research_events.jsonl",
+    intervalMs: positiveNumber("STRATEGY_RESEARCH_INTERVAL_MS", 15_000)
   },
 
   polymarket: {

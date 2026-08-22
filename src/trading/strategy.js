@@ -25,7 +25,7 @@ function optionalBoolean(env, name, defaultValue) {
   throw new Error(`${name} must be true or false.`);
 }
 
-export function resolvePaperStrategy(env = process.env) {
+export function resolveTaEdgeV12Config(env = process.env) {
   const strategy = String(env.PAPER_TRADE_STRATEGY ?? TA_EDGE_V1_2_FOK.strategy).trim();
   const resolved = {
     strategy,
@@ -51,6 +51,10 @@ export function resolvePaperStrategy(env = process.env) {
     throw new Error("PAPER_TRADE_MAX_SLIPPAGE must be between 0 and 1.");
   }
   return resolved;
+}
+
+export function resolvePaperStrategy(env = process.env) {
+  return resolveTaEdgeV12Config(env);
 }
 
 export function formatRecommendationReason(reason) {

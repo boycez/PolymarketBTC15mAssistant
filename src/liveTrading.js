@@ -14,9 +14,13 @@ import { privateKey } from "@polymarket/client/viem";
 import { getResolvedWinner, simulateFokBuy } from "./paperTrading.js";
 import { fetchMarketById, fetchMarketBySlug } from "./data/polymarket.js";
 import { formatRecommendationReason } from "./trading/strategy.js";
+import { atomicWriteFileSync } from "./utils.js";
 
 const COLUMNS = [
   "strategy",
+  "strategy_id",
+  "strategy_version",
+  "config_fingerprint",
   "order_type",
   "order_id",
   "order_status",
@@ -194,7 +198,10 @@ export class LiveTrader {
 
   constructor({
     enabled = false,
-    strategy = "TA_EDGE_V1_2_FOK_LIVE",
+    strategy = "TA_EDGE_V1_2_FOK",
+    strategyId = "ta-edge",
+    strategyVersion = "1.2.0",
+    configFingerprint = "",
     confirmationSeconds = 30,
     minRemainingMinutes = 5,
     maxRemainingMinutes = 10,
@@ -214,6 +221,9 @@ export class LiveTrader {
     this.ready = false;
     this.armState = "DISARMED";
     this.strategy = strategy;
+    this.strategyId = strategyId;
+    this.strategyVersion = strategyVersion;
+    this.configFingerprint = configFingerprint;
     this.confirmationMs = confirmationSeconds * 1_000;
     this.minRemainingMinutes = minRemainingMinutes;
     this.maxRemainingMinutes = maxRemainingMinutes;
@@ -409,6 +419,9 @@ export class LiveTrader {
     const entryPrice = stakeUsd / shares;
     const trade = {
       strategy: this.strategy,
+      strategy_id: this.strategyId,
+      strategy_version: this.strategyVersion,
+      config_fingerprint: this.configFingerprint,
       order_type: "FOK",
       order_id: String(response.orderId),
       order_status: String(response.status),
@@ -579,6 +592,9 @@ export class LiveTrader {
   #appendAttempt({ market, side, tokenId, bestAsk, maxPrice, modelProbability, executionEdge, reference, nowMs, orderStatus = "ERROR", error }) {
     const attempt = {
       strategy: this.strategy,
+      strategy_id: this.strategyId,
+      strategy_version: this.strategyVersion,
+      config_fingerprint: this.configFingerprint,
       order_type: "FOK",
       order_id: "",
       order_status: orderStatus,
@@ -624,6 +640,6 @@ export class LiveTrader {
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
     const lines = [COLUMNS.join(",")];
     for (const record of this.records) lines.push(COLUMNS.map((column) => csvValue(record[column])).join(","));
-    fs.writeFileSync(this.filePath, `${lines.join("\n")}\n`, "utf8");
+    atomicWriteFileSync(this.filePath, `${lines.join("\n")}\n`);
   }
 }
