@@ -1,7 +1,7 @@
 const ENGINE_ACTIONS = new Set(["start", "stop", "restart", "status", "logs"]);
 const TRADING_MODES = new Set(["paper", "live"]);
 
-export const POLY_HELP = `Polymarket BTC 15m Assistant
+export const POLY_HELP = `Polymarket BTC Assistant
 
 Usage:
   poly start [paper|live]

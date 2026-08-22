@@ -1,14 +1,26 @@
 # Polymarket BTC Assistant
 
-A real-time console trading assistant for Polymarket **"Bitcoin Up or Down" 15-minute** markets.
+A terminal-first Paper and guarded Live trading engine for Polymarket
+**"Bitcoin Up or Down" 15-minute** markets.
 
-It combines:
-- Polymarket market selection + UP/DOWN prices + liquidity
-- Polymarket live WS **Chainlink BTC/USD CURRENT PRICE** (same feed shown on the Polymarket UI)
-- Fallback to on-chain Chainlink (Polygon) via HTTP/WSS RPC
-- Binance spot price for reference
-- Short-term TA snapshot (Heiken Ashi, RSI, MACD, VWAP, Delta 1/3m)
-- A simple live **Predict (LONG/SHORT %)** derived from the assistant’s current TA scoring
+It combines Polymarket market data and executable order-book depth, the official
+Chainlink BTC/USD 60-second TWAP reference, Binance spot data, and short-term
+technical indicators. The same guarded strategy powers both realistic Paper
+simulation and official-SDK Live FOK orders.
+
+Key capabilities:
+
+- Exact market-start TWAP validation with fail-closed reference states.
+- Heiken Ashi, RSI, MACD, VWAP, regime, and short-term momentum signals.
+- Paper execution with book walking, dynamic fees, slippage, and settlement.
+- Guarded Live trading that starts stopped and requires `A`, then `Enter`.
+- Combined terminal mode or a detachable Dashboard over a local Unix socket.
+- Stale WebSocket detection, forced stream recovery, and runtime health display.
+- A unified `poly` CLI and Paper-first systemd deployment for 24x7 Linux use.
+
+Live trading can lose money. It never falls back to Paper, never persists the
+Armed state, and fails closed when reference data, credentials, account checks,
+or execution constraints are invalid.
 
 ## Requirements
 
@@ -44,7 +56,17 @@ npm link
 installation. The existing npm scripts remain available as fallback entry
 points.
 
-### 3) (Optional) Set environment variables
+### 3) Start Paper mode
+
+```bash
+poly start paper
+```
+
+Paper is the default, so `poly start` is equivalent. Press `Ctrl+C` to stop.
+Use `poly --help` to see the combined, Dashboard, diagnostics, and systemd
+commands.
+
+### 4) (Optional) Set environment variables
 
 You can run without extra config (defaults are included), but for more stable Chainlink fallback it’s recommended to set at least one Polygon RPC.
 
@@ -193,14 +215,14 @@ PowerShell:
 
 ```powershell
 $env:HTTPS_PROXY = "http://USERNAME:PASSWORD@HOST:PORT"
-npm start
+poly start paper
 ```
 
 CMD:
 
 ```cmd
 set HTTPS_PROXY=http://USERNAME:PASSWORD@HOST:PORT
-npm start
+poly start paper
 ```
 
 Important: if your password contains special characters like `@` or `:` you must URL-encode it.
@@ -211,7 +233,7 @@ Example:
 - encoded: `p%40ss%3Aword`
 - proxy URL: `http://user:p%40ss%3Aword@1.2.3.4:8080`
 
-## Run
+## Operating modes
 
 Paper trading is the default mode:
 
@@ -366,8 +388,8 @@ Set `walletAddress` to the public Trading/Proxy Wallet address shown by your
 existing Polymarket account. This is required for email, Google, and Apple
 accounts: their exported private key identifies the signer, while balances and
 positions belong to a separate account wallet. Passing that existing wallet to
-the SDK avoids accidentally creating a new Deposit Wallet and does not require
-a Relayer API key.
+the SDK avoids accidentally creating a new Deposit Wallet. Live startup still
+requires a Relayer API key associated with the signer.
 
 The local file contains only user-controlled stake, session, and runtime
 settings. Signal confirmation, entry timing, minimum edge, slippage, and trend
@@ -557,7 +579,8 @@ Press `Ctrl + C` in the terminal.
 ```bash
 git pull
 npm install
-npm start
+npm link
+poly start paper
 ```
 
 ## Notes / Troubleshooting
