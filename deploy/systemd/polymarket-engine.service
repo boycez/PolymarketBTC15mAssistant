@@ -1,6 +1,6 @@
 [Unit]
 Description=Polymarket BTC 15m Trading Engine
-Documentation=https://github.com/boycez/PolymarketBTC15mAssistant
+Documentation=https://github.com/boycez/polymarket-btc-assistant
 Wants=network-online.target
 After=network-online.target
 StartLimitIntervalSec=60

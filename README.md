@@ -1,4 +1,4 @@
-# Polymarket BTC 15m Assistant
+# Polymarket BTC Assistant
 
 A real-time console trading assistant for Polymarket **"Bitcoin Up or Down" 15-minute** markets.
 
@@ -21,7 +21,7 @@ It combines:
 ### 1) Clone the repository
 
 ```bash
-git clone https://github.com/FrondEnt/PolymarketBTC15mAssistant.git
+git clone https://github.com/boycez/polymarket-btc-assistant.git
 ```
 
 Alternative (no git):
