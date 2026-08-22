@@ -13,7 +13,7 @@ test("systemd unit runs the Engine as a hardened unprivileged service", async ()
   assert.match(unit, /^ExecStart=\/usr\/bin\/env node \/opt\/polymarket-btc15m\/src\/engine\.js$/m);
   assert.match(unit, /^Restart=on-failure$/m);
   assert.match(unit, /^KillSignal=SIGTERM$/m);
-  assert.match(unit, /^RuntimeDirectoryMode=0700$/m);
+  assert.match(unit, /^RuntimeDirectoryMode=0750$/m);
   assert.match(unit, /^UMask=0077$/m);
   assert.match(unit, /^NoNewPrivileges=true$/m);
   assert.match(unit, /^ProtectSystem=strict$/m);
@@ -25,5 +25,6 @@ test("systemd environment example is Paper-only and contains no credentials", as
 
   assert.match(environment, /^TRADING_MODE=paper$/m);
   assert.match(environment, /^POLYMARKET_ENGINE_SOCKET=\/run\/polymarket-btc15m\/engine\.sock$/m);
+  assert.match(environment, /^POLYMARKET_ENGINE_SOCKET_MODE=0660$/m);
   assert.doesNotMatch(environment, /PRIVATE_KEY|RELAYER_API_KEY|SECRET|TOKEN=/i);
 });

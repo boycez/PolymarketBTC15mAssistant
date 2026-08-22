@@ -1,9 +1,10 @@
-import { SnapshotSocketServer, defaultSnapshotSocketPath } from "./engine/snapshotSocketServer.js";
+import { SnapshotSocketServer, defaultSnapshotSocketPath, parseSnapshotSocketMode } from "./engine/snapshotSocketServer.js";
 import { executeControlCommand } from "./engine/controlProtocol.js";
 import { runApplication } from "./index.js";
 
 const socketPath = process.env.POLYMARKET_ENGINE_SOCKET?.trim() || defaultSnapshotSocketPath();
-const snapshotServer = new SnapshotSocketServer({ socketPath });
+const socketMode = parseSnapshotSocketMode(process.env.POLYMARKET_ENGINE_SOCKET_MODE);
+const snapshotServer = new SnapshotSocketServer({ socketPath, socketMode });
 
 try {
   await snapshotServer.start();

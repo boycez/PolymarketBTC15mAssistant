@@ -17,41 +17,48 @@ node --version
 
 ## Install
 
-Create a dedicated non-login service account and writable runtime data folder:
+Deploy the repository, install production dependencies, and register `poly`
+with the system Node.js installation:
 
 ```bash
-sudo useradd --system --home /nonexistent --shell /usr/sbin/nologin polymarket
-sudo install -d -o root -g polymarket -m 0750 /opt/polymarket-btc15m
-sudo install -d -o polymarket -g polymarket -m 0700 /opt/polymarket-btc15m/logs
-sudo install -d -o root -g polymarket -m 0750 /etc/polymarket-btc15m
+cd /opt/polymarket-btc15m
+sudo npm ci --omit=dev
+sudo npm link
+sudo poly install
 ```
 
-After deploying the repository and running `npm ci --omit=dev`, keep application files owned by root and make only `logs/` writable by the service account:
+`poly install` is Linux/root-only and requires the repository to be exactly at
+`/opt/polymarket-btc15m`. It:
+
+- creates the non-login `polymarket` service account when needed;
+- keeps application files root-owned and only `logs/` service-writable;
+- installs the Paper-only environment and hardened unit;
+- verifies the unit with `systemd-analyze verify`;
+- enables and starts the Engine;
+- adds the invoking `SUDO_USER` to the trusted `polymarket` group.
+
+The environment file is created only when absent, so reinstalling does not
+overwrite local settings. Sign out and back in after the first installation so
+the new group membership applies. Then attach without running the Dashboard as
+the service account:
 
 ```bash
-sudo chown -R root:polymarket /opt/polymarket-btc15m
-sudo chown polymarket:polymarket /opt/polymarket-btc15m/logs
-sudo chmod 0700 /opt/polymarket-btc15m/logs
+poly dashboard
 ```
 
-Install the Paper environment file and service unit:
-
-```bash
-sudo install -m 0600 deploy/systemd/engine.env.example /etc/polymarket-btc15m/engine.env
-sudo install -m 0644 deploy/systemd/polymarket-engine.service /etc/systemd/system/polymarket-engine.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now polymarket-engine.service
-```
-
-The unit creates `/run/polymarket-btc15m` with mode `0700` on every boot. Its Unix socket is `/run/polymarket-btc15m/engine.sock`; no TCP listener is opened.
+The unit creates `/run/polymarket-btc15m` with mode `0750` on every boot. Its
+Unix socket is `/run/polymarket-btc15m/engine.sock` with mode `0660`; only the
+service owner and trusted group can access it. No TCP listener is opened.
 
 ## Operate
 
 ```bash
-sudo systemctl status polymarket-engine.service
-sudo systemctl restart polymarket-engine.service
-sudo systemctl stop polymarket-engine.service
-sudo journalctl -u polymarket-engine.service -f
+poly engine status
+poly engine restart
+poly engine stop
+poly engine start
+poly engine logs
+poly doctor
 ```
 
 `SIGTERM` stops the health monitor, closes all market streams, runs the Live kill switch when applicable, closes the Unix socket, and then exits. A crash is restarted after five seconds. A normal operator stop is not restarted.
@@ -61,21 +68,24 @@ sudo journalctl -u polymarket-engine.service -f
 Stop the Engine before replacing files or dependencies:
 
 ```bash
-sudo systemctl stop polymarket-engine.service
+poly engine stop
 cd /opt/polymarket-btc15m
 sudo git pull --ff-only
 sudo npm ci --omit=dev
-sudo chown -R root:polymarket /opt/polymarket-btc15m
-sudo chown polymarket:polymarket /opt/polymarket-btc15m/logs
-sudo systemctl start polymarket-engine.service
+sudo poly install
 ```
 
 Check status and recent logs after every update:
 
 ```bash
-sudo systemctl status polymarket-engine.service
-sudo journalctl -u polymarket-engine.service -n 100 --no-pager
+poly engine status
+poly engine logs
 ```
+
+For low-level troubleshooting, the CLI maps these operations to
+`systemctl polymarket-engine.service` and
+`journalctl -u polymarket-engine.service -f` without constructing shell command
+strings.
 
 ## Live safety boundary
 

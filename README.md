@@ -37,7 +37,12 @@ Then open a terminal in the project folder.
 
 ```bash
 npm install
+npm link
 ```
+
+`npm link` registers the repository's `poly` command for the current Node.js
+installation. The existing npm scripts remain available as fallback entry
+points.
 
 ### 3) (Optional) Set environment variables
 
@@ -211,14 +216,14 @@ Example:
 Paper trading is the default mode:
 
 ```bash
-npm start
+poly start
 ```
 
-The preferred explicit mode commands are:
+Select the combined terminal mode explicitly with:
 
 ```bash
-npm start paper
-npm start live
+poly start paper
+poly start live
 ```
 
 The npm script aliases remain available:
@@ -253,7 +258,7 @@ stopped after every startup.
 Attach the terminal Dashboard from a second terminal:
 
 ```bash
-npm run dashboard
+poly dashboard
 ```
 
 The Dashboard immediately receives the Engine's latest cached snapshot, shows
@@ -263,7 +268,7 @@ continues running. The transport is a local Unix socket, not a browser or TCP
 service, and snapshots with malformed JSON or unsupported protocol versions are
 ignored.
 
-In Live mode, the owner-only socket accepts a strict versioned control protocol.
+In Live mode, the permission-restricted socket accepts a strict versioned control protocol.
 The Dashboard preserves the same two-step safety flow as combined mode:
 
 - Press `A` to request arming, then `Enter` to confirm.
@@ -279,8 +284,8 @@ For local development, combined mode remains available and does not require a
 second terminal:
 
 ```bash
-npm start paper
-npm start live
+poly start paper
+poly start live
 ```
 
 ## Stream health and systemd
@@ -300,15 +305,28 @@ Optional watchdog settings:
 
 An Azure Linux VM systemd template and Paper-first installation guide are in
 [`deploy/systemd/`](deploy/systemd/README.md). It runs under a dedicated
-unprivileged account, uses an owner-only runtime socket, writes process output
-to journald, restarts after failures, and performs graceful shutdown. It does
-not configure SSH or unattended Live credentials.
+unprivileged account, uses a trusted-group local socket, writes process output
+to journald, restarts after failures, and performs graceful shutdown. After
+installation, daily operations are:
+
+```bash
+poly engine start
+poly engine stop
+poly engine restart
+poly engine status
+poly engine logs
+poly dashboard
+poly doctor
+```
+
+The deployment does not configure SSH or unattended Live credentials. The
+systemd template remains Paper-only.
 
 You can also select a mode with `TRADING_MODE=paper|live` or
 `node src/index.js --mode=paper|live`. A CLI argument takes precedence over the
 environment variable.
 
-Live trading uses the official `@polymarket/client` SDK. `npm start live` never
+Live trading uses the official `@polymarket/client` SDK. `poly start live` never
 falls back to paper trading. It authenticates and runs startup checks, but order
 submission remains stopped until the user manually enables it after startup.
 
@@ -381,7 +399,7 @@ orders are enabled.
 Start Live authentication and preflight with:
 
 ```bash
-npm start live
+poly start live
 ```
 
 After the checks pass, verify the masked trading wallet and wallet type. The
@@ -409,7 +427,7 @@ terminal:
 
 The enabled state is never persisted across restarts. A combined Live process
 requires an interactive TTY for controls. A headless Live Engine has no local
-keyboard controls and remains stopped until its owner-only terminal Dashboard
+keyboard controls and remains stopped until an authorized terminal Dashboard
 completes `A` then `Enter`. Stopping does not sell or otherwise close positions
 that have already filled; those positions continue to settlement.
 

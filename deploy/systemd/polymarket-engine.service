@@ -21,7 +21,7 @@ KillSignal=SIGTERM
 TimeoutStopSec=30
 
 RuntimeDirectory=polymarket-btc15m
-RuntimeDirectoryMode=0700
+RuntimeDirectoryMode=0750
 UMask=0077
 
 NoNewPrivileges=true

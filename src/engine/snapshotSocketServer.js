@@ -12,6 +12,14 @@ export function defaultSnapshotSocketPath() {
   return path.join(os.tmpdir(), `polymarket-btc15m-${userId}.sock`);
 }
 
+export function parseSnapshotSocketMode(value = "0600") {
+  const text = String(value).trim();
+  if (text !== "0600" && text !== "0660") {
+    throw new Error("POLYMARKET_ENGINE_SOCKET_MODE must be 0600 or 0660.");
+  }
+  return Number.parseInt(text, 8);
+}
+
 async function socketIsActive(socketPath) {
   return new Promise((resolve, reject) => {
     const client = net.createConnection(socketPath);
@@ -30,8 +38,9 @@ async function socketIsActive(socketPath) {
 }
 
 export class SnapshotSocketServer {
-  constructor({ socketPath = defaultSnapshotSocketPath(), onControlCommand = null } = {}) {
+  constructor({ socketPath = defaultSnapshotSocketPath(), socketMode = 0o600, onControlCommand = null } = {}) {
     this.socketPath = socketPath;
+    this.socketMode = socketMode;
     this.server = null;
     this.clients = new Set();
     this.ownsSocket = false;
@@ -81,7 +90,7 @@ export class SnapshotSocketServer {
 
     this.server = server;
     this.ownsSocket = true;
-    await fs.chmod(this.socketPath, 0o600);
+    await fs.chmod(this.socketPath, this.socketMode);
   }
 
   publish(snapshot) {

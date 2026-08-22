@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { SnapshotSocketServer } from "../src/engine/snapshotSocketServer.js";
+import { SnapshotSocketServer, parseSnapshotSocketMode } from "../src/engine/snapshotSocketServer.js";
 
 async function connect(socketPath) {
   return new Promise((resolve, reject) => {
@@ -47,6 +47,20 @@ test("broadcasts newline-delimited snapshots with owner-only permissions", async
   server.publish(snapshot);
 
   assert.deepEqual(JSON.parse(await received), snapshot);
+});
+
+test("supports trusted-group socket access without world permissions", async (context) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "poly-engine-test-"));
+  const socketPath = path.join(directory, "engine.sock");
+  const server = new SnapshotSocketServer({ socketPath, socketMode: parseSnapshotSocketMode("0660") });
+  context.after(async () => {
+    await server.close();
+    await fs.rm(directory, { recursive: true, force: true });
+  });
+
+  await server.start();
+  assert.equal((await fs.stat(socketPath)).mode & 0o777, 0o660);
+  assert.throws(() => parseSnapshotSocketMode("0666"), /0600 or 0660/);
 });
 
 test("sends the latest snapshot immediately to a newly attached client", async (context) => {
