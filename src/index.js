@@ -20,13 +20,15 @@ import { computeHeikenAshi, countConsecutive } from "./indicators/heikenAshi.js"
 import { detectRegime } from "./engines/regime.js";
 import { scoreDirection, applyTimeAwareness } from "./engines/probability.js";
 import { computeEdge, decide } from "./engines/edge.js";
-import { appendCsvRow, formatNumber, formatPct, getCandleWindowTiming, sleep } from "./utils.js";
+import { appendCsvRow, getCandleWindowTiming, sleep } from "./utils.js";
 import { startBinanceTradeStream } from "./data/binanceWs.js";
 import { applyGlobalProxyFromEnv } from "./net/proxy.js";
 import { ReferencePriceGate } from "./referencePrice.js";
 import { acquireLivePrivateKey, acquireLiveRelayerApiKey } from "./security/terminalSecret.js";
 import { createTradingRuntime } from "./trading/createTradingRuntime.js";
 import { formatRecommendationReason, strategyGateCategory } from "./trading/strategy.js";
+import { createRuntimeSnapshot } from "./dashboard/runtimeSnapshot.js";
+import { renderTerminalDashboard } from "./dashboard/terminalRenderer.js";
 
 function countVwapCrosses(closes, vwapSeries, lookback) {
   if (closes.length < lookback || vwapSeries.length < lookback) return null;
@@ -42,33 +44,9 @@ function countVwapCrosses(closes, vwapSeries, lookback) {
 
 applyGlobalProxyFromEnv();
 
-function fmtTimeLeft(mins) {
-  const totalSeconds = Math.max(0, Math.floor(mins * 60));
-  const m = Math.floor(totalSeconds / 60);
-  const s = totalSeconds % 60;
-  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-}
-
-const ANSI = {
-  reset: "\x1b[0m",
-  red: "\x1b[31m",
-  green: "\x1b[32m",
-  yellow: "\x1b[33m",
-  lightRed: "\x1b[91m",
-  gray: "\x1b[90m",
-  softWhite: "\x1b[37m",
-  white: "\x1b[97m",
-  dim: "\x1b[2m"
-};
-
 function screenWidth() {
   const w = Number(process.stdout?.columns);
   return Number.isFinite(w) && w >= 40 ? w : 80;
-}
-
-function sepLine(ch = "─") {
-  const w = screenWidth();
-  return `${ANSI.white}${ch.repeat(w)}${ANSI.reset}`;
 }
 
 let alternateScreenActive = false;
@@ -144,130 +122,6 @@ function renderScreen(text) {
   process.stdout.write(text);
 }
 
-function stripAnsi(s) {
-  return String(s).replace(/\x1b\[[0-9;]*m/g, "");
-}
-
-function padLabel(label, width) {
-  const visible = stripAnsi(label).length;
-  if (visible >= width) return label;
-  return label + " ".repeat(width - visible);
-}
-
-function centerText(text, width) {
-  const visible = stripAnsi(text).length;
-  if (visible >= width) return text;
-  const left = Math.floor((width - visible) / 2);
-  const right = width - visible - left;
-  return " ".repeat(left) + text + " ".repeat(right);
-}
-
-function maskAddress(value) {
-  const address = String(value ?? "");
-  return address.length >= 12 ? `${address.slice(0, 6)}...${address.slice(-4)}` : "-";
-}
-
-const LABEL_W = 18;
-function kv(label, value) {
-  const l = padLabel(String(label), LABEL_W);
-  return `${l}${value}`;
-}
-
-function section(title) {
-  return `${ANSI.softWhite}${String(title).toUpperCase()}${ANSI.reset}`;
-}
-
-function colorPriceLine({ label, price, prevPrice, decimals = 0, prefix = "" }) {
-  if (price === null || price === undefined) {
-    return `${label}: ${ANSI.gray}-${ANSI.reset}`;
-  }
-
-  const p = Number(price);
-  const prev = prevPrice === null || prevPrice === undefined ? null : Number(prevPrice);
-
-  let color = ANSI.reset;
-  let arrow = "";
-  if (prev !== null && Number.isFinite(prev) && Number.isFinite(p) && p !== prev) {
-    if (p > prev) {
-      color = ANSI.green;
-      arrow = " ↑";
-    } else {
-      color = ANSI.red;
-      arrow = " ↓";
-    }
-  }
-
-  const formatted = `${prefix}${formatNumber(p, decimals)}`;
-  return `${label}: ${color}${formatted}${arrow}${ANSI.reset}`;
-}
-
-function formatSignedDelta(delta, base) {
-  if (delta === null || base === null || base === 0) return `${ANSI.gray}-${ANSI.reset}`;
-  const sign = delta > 0 ? "+" : delta < 0 ? "-" : "";
-  const pct = (Math.abs(delta) / Math.abs(base)) * 100;
-  return `${sign}$${Math.abs(delta).toFixed(2)}, ${sign}${pct.toFixed(2)}%`;
-}
-
-function colorByNarrative(text, narrative) {
-  if (narrative === "LONG") return `${ANSI.green}${text}${ANSI.reset}`;
-  if (narrative === "SHORT") return `${ANSI.red}${text}${ANSI.reset}`;
-  return `${ANSI.gray}${text}${ANSI.reset}`;
-}
-
-function formatNarrativeValue(label, value, narrative) {
-  return `${label}: ${colorByNarrative(value, narrative)}`;
-}
-
-function narrativeFromSign(x) {
-  if (x === null || x === undefined || !Number.isFinite(Number(x)) || Number(x) === 0) return "NEUTRAL";
-  return Number(x) > 0 ? "LONG" : "SHORT";
-}
-
-function narrativeFromRsi(rsi) {
-  if (rsi === null || rsi === undefined || !Number.isFinite(Number(rsi))) return "NEUTRAL";
-  const v = Number(rsi);
-  if (v >= 55) return "LONG";
-  if (v <= 45) return "SHORT";
-  return "NEUTRAL";
-}
-
-function narrativeFromSlope(slope) {
-  if (slope === null || slope === undefined || !Number.isFinite(Number(slope)) || Number(slope) === 0) return "NEUTRAL";
-  return Number(slope) > 0 ? "LONG" : "SHORT";
-}
-
-function formatProbPct(p, digits = 0) {
-  if (p === null || p === undefined || !Number.isFinite(Number(p))) return "-";
-  return `${(Number(p) * 100).toFixed(digits)}%`;
-}
-
-function fmtEtTime(now = new Date()) {
-  try {
-    return new Intl.DateTimeFormat("en-US", {
-      timeZone: "America/New_York",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hour12: false
-    }).format(now);
-  } catch {
-    return "-";
-  }
-}
-
-function getBtcSession(now = new Date()) {
-  const h = now.getUTCHours();
-  const inAsia = h >= 0 && h < 8;
-  const inEurope = h >= 7 && h < 16;
-  const inUs = h >= 13 && h < 22;
-
-  if (inEurope && inUs) return "Europe/US overlap";
-  if (inAsia && inEurope) return "Asia/Europe overlap";
-  if (inAsia) return "Asia";
-  if (inEurope) return "Europe";
-  if (inUs) return "US";
-  return "Off-hours";
-}
 
 function parsePriceToBeat(market) {
   const text = String(market?.question ?? market?.title ?? "");
@@ -667,50 +521,10 @@ async function main() {
       const delta1m = lastClose !== null && close1mAgo !== null ? lastClose - close1mAgo : null;
       const delta3m = lastClose !== null && close3mAgo !== null ? lastClose - close3mAgo : null;
 
-      const haNarrative = (consec.color ?? "").toLowerCase() === "green" ? "LONG" : (consec.color ?? "").toLowerCase() === "red" ? "SHORT" : "NEUTRAL";
-      const rsiNarrative = narrativeFromSlope(rsiSlope);
-      const macdNarrative = narrativeFromSign(macd?.hist ?? null);
-      const vwapNarrative = narrativeFromSign(vwapDist);
-
       const pLong = timeAware?.adjustedUp ?? null;
       const pShort = timeAware?.adjustedDown ?? null;
-      const predictNarrative = (pLong !== null && pShort !== null && Number.isFinite(pLong) && Number.isFinite(pShort))
-        ? (pLong > pShort ? "LONG" : pShort > pLong ? "SHORT" : "NEUTRAL")
-        : "NEUTRAL";
-      const predictValue = `${ANSI.green}LONG${ANSI.reset} ${ANSI.green}${formatProbPct(pLong, 0)}${ANSI.reset} / ${ANSI.red}SHORT${ANSI.reset} ${ANSI.red}${formatProbPct(pShort, 0)}${ANSI.reset}`;
-      const predictLine = `Predict: ${predictValue}`;
-
-      const marketUpStr = `${marketUp ?? "-"}${marketUp === null || marketUp === undefined ? "" : "¢"}`;
-      const marketDownStr = `${marketDown ?? "-"}${marketDown === null || marketDown === undefined ? "" : "¢"}`;
-      const polyHeaderValue = `${ANSI.green}↑ UP${ANSI.reset} ${marketUpStr}  |  ${ANSI.red}↓ DOWN${ANSI.reset} ${marketDownStr}`;
-
-      const heikenValue = `${consec.color ?? "-"} x${consec.count}`;
-      const heikenLine = formatNarrativeValue("Heiken Ashi", heikenValue, haNarrative);
-
-      const rsiArrow = rsiSlope !== null && rsiSlope < 0 ? "↓" : rsiSlope !== null && rsiSlope > 0 ? "↑" : "-";
-      const rsiValue = `${formatNumber(rsiNow, 1)} ${rsiArrow}`;
-      const rsiLine = formatNarrativeValue("RSI", rsiValue, rsiNarrative);
-
-      const macdLine = formatNarrativeValue("MACD", macdLabel, macdNarrative);
-
-      const delta1Narrative = narrativeFromSign(delta1m);
-      const delta3Narrative = narrativeFromSign(delta3m);
-      const deltaValue = `${colorByNarrative(formatSignedDelta(delta1m, lastClose), delta1Narrative)} | ${colorByNarrative(formatSignedDelta(delta3m, lastClose), delta3Narrative)}`;
-      const deltaLine = `Delta 1/3Min: ${deltaValue}`;
-
-      const vwapValue = `${formatNumber(vwapNow, 0)} (${formatPct(vwapDist, 2)}) | slope: ${vwapSlopeLabel}`;
-      const vwapLine = formatNarrativeValue("VWAP", vwapValue, vwapNarrative);
 
       const signal = rec.action === "ENTER" ? (rec.side === "UP" ? "BUY UP" : "BUY DOWN") : "NO TRADE";
-
-      const actionLine = rec.action === "ENTER"
-        ? `${rec.action} NOW (${rec.phase} ENTRY)`
-        : `NO TRADE (${rec.phase})`;
-
-      const spreadUp = poly.ok ? poly.orderbook.up.spread : null;
-      const spreadDown = poly.ok ? poly.orderbook.down.spread : null;
-
-      const spread = spreadUp !== null && spreadDown !== null ? Math.max(spreadUp, spreadDown) : (spreadUp ?? spreadDown);
       const liquidity = poly.ok
         ? (Number(poly.market?.liquidityNum) || Number(poly.market?.liquidity) || null)
         : null;
@@ -728,41 +542,11 @@ async function main() {
         reference
       });
       const tradingSummary = tradingRuntime.getSummary();
-      const tradingPnlColor = tradingSummary.realized_pnl_usd > 0
-        ? ANSI.green
-        : tradingSummary.realized_pnl_usd < 0
-          ? ANSI.red
-          : ANSI.gray;
-      const tradingPnlSign = tradingSummary.realized_pnl_usd > 0 ? "+" : "";
-      const tradingReturnSign = tradingSummary.realized_return_pct > 0 ? "+" : "";
 
       const spotPrice = wsPrice ?? lastPrice;
       const currentPrice = reference.currentTwap === null ? null : Number(reference.currentTwap);
       const priceToBeat = reference.priceToBeat === null ? null : Number(reference.priceToBeat);
       const marketSlug = poly.ok ? String(poly.market?.slug ?? "") : "";
-      const currentPriceBaseLine = colorPriceLine({
-        label: "Current Price",
-        price: currentPrice,
-        prevPrice: prevCurrentPrice,
-        decimals: 2,
-        prefix: "$"
-      });
-
-      const ptbDelta = (currentPrice !== null && priceToBeat !== null && Number.isFinite(currentPrice) && Number.isFinite(priceToBeat))
-        ? currentPrice - priceToBeat
-        : null;
-      const ptbDeltaColor = ptbDelta === null
-        ? ANSI.gray
-        : ptbDelta > 0
-          ? ANSI.green
-          : ptbDelta < 0
-            ? ANSI.red
-            : ANSI.gray;
-      const ptbDeltaText = ptbDelta === null
-        ? `${ANSI.gray}-${ANSI.reset}`
-        : `${ptbDeltaColor}${ptbDelta > 0 ? "+" : ptbDelta < 0 ? "-" : ""}$${Math.abs(ptbDelta).toFixed(2)}${ANSI.reset}`;
-      const currentPriceValue = currentPriceBaseLine.split(": ")[1] ?? currentPriceBaseLine;
-      const currentPriceLine = kv("Current Price:", `${currentPriceValue} (${ptbDeltaText})`);
 
       if (CONFIG.polymarket.dumpMarketSnapshots && poly.ok && poly.market && priceToBeat === null) {
         const slug = safeFileSlug(poly.market.slug || poly.market.id || "market");
@@ -779,31 +563,7 @@ async function main() {
         }
       }
 
-      const binanceSpotBaseLine = colorPriceLine({ label: "BTC (Binance)", price: spotPrice, prevPrice: prevSpotPrice, decimals: 0, prefix: "$" });
-      const diffLine = (spotPrice !== null && currentPrice !== null && Number.isFinite(spotPrice) && Number.isFinite(currentPrice) && currentPrice !== 0)
-        ? (() => {
-          const diffUsd = spotPrice - currentPrice;
-          const diffPct = (diffUsd / currentPrice) * 100;
-          const sign = diffUsd > 0 ? "+" : diffUsd < 0 ? "-" : "";
-          return ` (${sign}$${Math.abs(diffUsd).toFixed(2)}, ${sign}${Math.abs(diffPct).toFixed(2)}%)`;
-        })()
-        : "";
-      const binanceSpotLine = `${binanceSpotBaseLine}${diffLine}`;
-      const binanceSpotValue = binanceSpotLine.split(": ")[1] ?? binanceSpotLine;
-      const binanceSpotKvLine = kv("BTC (Binance):", binanceSpotValue);
-
       const titleLine = poly.ok ? `${poly.market?.question ?? "-"}` : "-";
-      const referenceColor = reference.state === "READY"
-        ? ANSI.green
-        : reference.state === "ARMED" || reference.state === "SYNCING"
-          ? ANSI.yellow
-          : ANSI.red;
-      const referenceObserved = reference.currentObservedAtMs
-        ? new Date(reference.currentObservedAtMs).toISOString().slice(11, 19)
-        : "-";
-      const referenceFreshness = reference.freshnessMs === null
-        ? "-"
-        : `${(reference.freshnessMs / 1_000).toFixed(1)}s`;
 
       const strategyConstraints = tradingRuntime.getStrategyConstraints();
       const recommendationText = (() => {
@@ -818,14 +578,8 @@ async function main() {
         }
         return `BUY ${rec.side}: ${rec.phase} ${rec.strength}`;
       })();
-      const tradingMode = tradingRuntime.mode === "live" ? "Live" : "Paper";
       const tradingAccount = tradingRuntime.getAccountIdentity();
       const tradingControl = tradingRuntime.getControlState();
-      const tradingControlColor = tradingControl.state === "ARMED"
-        ? ANSI.green
-        : tradingControl.state === "PENDING_CONFIRMATION"
-          ? ANSI.yellow
-          : ANSI.red;
       const tradingControlHelp = tradingControl.state === "PENDING_CONFIRMATION"
         ? "Enter confirm | Esc cancel | S stop"
         : tradingControl.state === "UNAVAILABLE"
@@ -834,89 +588,65 @@ async function main() {
           ? "A enable | S stop"
           : "Interactive terminal required";
 
-      const timeColor = timeLeftMin >= 10 && timeLeftMin <= 15
-        ? ANSI.green
-        : timeLeftMin >= 5 && timeLeftMin < 10
-          ? ANSI.yellow
-          : timeLeftMin >= 0 && timeLeftMin < 5
-            ? ANSI.red
-            : ANSI.reset;
-      const timeLeftLine = `⏱ Time left: ${timeColor}${fmtTimeLeft(timeLeftMin)}${ANSI.reset}`;
+      const dashboardSnapshot = createRuntimeSnapshot({
+        generatedAtMs: Date.now(),
+        market: {
+          title: titleLine,
+          slug: marketSlug || "-",
+          timeLeftMinutes: timeLeftMin,
+          polymarketUp: marketUp,
+          polymarketDown: marketDown,
+          liquidityUsd: liquidity,
+          priceToBeatUsd: priceToBeat,
+          currentPriceUsd: currentPrice,
+          previousCurrentPriceUsd: prevCurrentPrice,
+          binancePriceUsd: spotPrice,
+          previousBinancePriceUsd: prevSpotPrice
+        },
+        signal: {
+          modelUp: pLong,
+          modelDown: pShort,
+          heikenColor: consec.color,
+          heikenCount: consec.count,
+          rsi: rsiNow,
+          rsiSlope,
+          macdLabel,
+          macdHistogram: macd?.hist ?? null,
+          delta1m,
+          delta3m,
+          deltaBase: lastClose,
+          vwap: vwapNow,
+          vwapDistance: vwapDist,
+          vwapSlopeLabel,
+          regime: regimeInfo.regime,
+          recommendation: recommendationText
+        },
+        readiness: {
+          state: reference.state,
+          tradingAllowed: reference.tradingAllowed,
+          freshnessMs: reference.freshnessMs,
+          reason: reference.reason,
+          observedAtMs: reference.currentObservedAtMs,
+          source: "Chainlink BTC/USD TWAP 60s"
+        },
+        trading: {
+          mode: tradingRuntime.mode,
+          sectionTitle: tradingRuntime.sectionTitle,
+          status: tradingStatus,
+          account: tradingAccount,
+          control: tradingControl,
+          controlHelp: tradingControlHelp,
+          pendingConfirmation: tradingControl.state === "PENDING_CONFIRMATION" ? {
+            stakeUsd: CONFIG.liveTrading.stakeUsd,
+            maxTradesPerSession: CONFIG.liveTrading.maxTradesPerSession,
+            maxSlippage: CONFIG.liveTrading.maxSlippage
+          } : null,
+          summary: tradingSummary
+        },
+        session: {}
+      });
 
-      const lines = [
-        `${ANSI.white}POLYMARKET BTC 15M ASSISTANT${ANSI.reset}`,
-        "",
-        sepLine(),
-        "",
-        section("Market Snapshot"),
-        "",
-        kv("Market:", titleLine),
-        kv("Slug:", poly.ok ? (poly.market?.slug ?? "-") : "-"),
-        kv("Time Left:", `${timeColor}${fmtTimeLeft(timeLeftMin)}${ANSI.reset}`),
-        kv("Polymarket:", polyHeaderValue),
-        liquidity !== null ? kv("Liquidity:", `$${formatNumber(liquidity, 0)}`) : null,
-        priceToBeat !== null ? kv("Price To Beat:", `$${formatNumber(priceToBeat, 2)}`) : kv("Price To Beat:", `${ANSI.gray}unavailable${ANSI.reset}`),
-        currentPriceLine,
-        binanceSpotKvLine,
-        "",
-        sepLine(),
-        "",
-        section("Signal Analysis"),
-        "",
-        kv("TA Predict:", predictValue),
-        kv("Heiken Ashi:", heikenLine.split(": ")[1] ?? heikenLine),
-        kv("RSI:", rsiLine.split(": ")[1] ?? rsiLine),
-        kv("MACD:", macdLine.split(": ")[1] ?? macdLine),
-        kv("Delta 1/3:", deltaLine.split(": ")[1] ?? deltaLine),
-        kv("VWAP:", vwapLine.split(": ")[1] ?? vwapLine),
-        kv("Regime:", regimeInfo.regime),
-        kv("Recommendation:", recommendationText),
-        "",
-        sepLine(),
-        "",
-        section("Trading Readiness"),
-        "",
-        kv("Mode:", tradingMode),
-        kv("Reference State:", `${referenceColor}${reference.state}${ANSI.reset}`),
-        kv(tradingRuntime.mode === "live" ? "System Gate:" : "Trading Gate:", reference.tradingAllowed ? `${ANSI.green}OPEN${ANSI.reset}` : `${ANSI.red}CLOSED${ANSI.reset}`),
-        tradingRuntime.mode === "live" ? kv("Auto Orders:", `${tradingControlColor}${tradingControl.text}${ANSI.reset}`) : null,
-        kv("Freshness:", referenceFreshness),
-        kv("Reason:", reference.reason),
-        kv("Observed UTC:", referenceObserved),
-        kv("Source:", "Chainlink BTC/USD TWAP 60s"),
-        "",
-        sepLine(),
-        "",
-        section(tradingRuntime.sectionTitle),
-        "",
-        kv("Status:", tradingStatus.text),
-        tradingRuntime.mode === "live" && tradingAccount?.wallet ? kv("Trading Wallet:", maskAddress(tradingAccount.wallet)) : null,
-        tradingRuntime.mode === "live" && Number.isFinite(tradingAccount?.balanceUsd) ? kv("Available:", `$${formatNumber(tradingAccount.balanceUsd, 2)} USDC`) : null,
-        tradingRuntime.mode === "live" && tradingAccount?.allowanceStatus ? kv("Allowance:", tradingAccount.allowanceStatus) : null,
-        tradingRuntime.mode === "live" && tradingAccount?.authorizationStatus ? kv("Authorization:", tradingAccount.authorizationStatus) : null,
-        tradingRuntime.mode === "live" && tradingAccount?.walletType ? kv("Wallet Type:", tradingAccount.walletType) : null,
-        tradingRuntime.mode === "live" ? kv("Control:", tradingControlHelp) : null,
-        tradingControl.state === "PENDING_CONFIRMATION" ? kv("Stake:", `$${formatNumber(CONFIG.liveTrading.stakeUsd, 2)}`) : null,
-        tradingControl.state === "PENDING_CONFIRMATION" ? kv("Session Limit:", `${CONFIG.liveTrading.maxTradesPerSession} trade${CONFIG.liveTrading.maxTradesPerSession === 1 ? "" : "s"}`) : null,
-        tradingControl.state === "PENDING_CONFIRMATION" ? kv("Max Slippage:", `${formatNumber(CONFIG.liveTrading.maxSlippage * 100, 1)}%`) : null,
-        tradingControl.state === "PENDING_CONFIRMATION" ? kv("Stop Action:", "block new orders and cancel open orders") : null,
-        kv("Trades:", `${tradingSummary.total_trades} total | ${tradingSummary.settled_trades} settled | ${tradingSummary.pending_trades} awaiting`),
-        kv("Record:", `${tradingSummary.wins}W / ${tradingSummary.losses}L | ${formatNumber(tradingSummary.win_rate_pct, 1)}%`),
-        kv("Realized PnL:", `${tradingPnlColor}${tradingPnlSign}$${formatNumber(tradingSummary.realized_pnl_usd, 2)} (${tradingReturnSign}${formatNumber(tradingSummary.realized_return_pct, 1)}%)${ANSI.reset}`),
-        kv("Pending Stake:", `$${formatNumber(tradingSummary.pending_stake_usd, 2)}`),
-        "",
-        sepLine(),
-        "",
-        section("Session"),
-        "",
-        kv("ET | Session:", `${ANSI.white}${fmtEtTime(new Date())}${ANSI.reset} | ${ANSI.white}${getBtcSession(new Date())}${ANSI.reset}`),
-        "",
-        sepLine(),
-        "",
-        centerText(`${ANSI.dim}${ANSI.gray}created by @krajekis · enhanced by @boycez${ANSI.reset}`, screenWidth())
-      ].filter((x) => x !== null);
-
-      renderScreen(lines.join("\n") + "\n");
+      renderScreen(renderTerminalDashboard(dashboardSnapshot, { width: screenWidth() }));
 
       prevSpotPrice = spotPrice ?? prevSpotPrice;
       prevCurrentPrice = currentPrice ?? prevCurrentPrice;
