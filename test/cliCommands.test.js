@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { engineInvocation, foregroundInvocation, parsePolyCommand } from "../src/cli/commands.js";
+import { engineInvocation, foregroundInvocation, parsePolyCommand, updateInvocations } from "../src/cli/commands.js";
 
 test("parses the public poly command surface", () => {
   assert.deepEqual(parsePolyCommand([]), { command: "help" });
@@ -16,6 +16,7 @@ test("parses the public poly command surface", () => {
   assert.deepEqual(parsePolyCommand(["dashboard"]), { command: "dashboard" });
   assert.deepEqual(parsePolyCommand(["doctor"]), { command: "doctor" });
   assert.deepEqual(parsePolyCommand(["install"]), { command: "install" });
+  assert.deepEqual(parsePolyCommand(["update"]), { command: "update" });
   assert.deepEqual(parsePolyCommand(["version"]), { command: "version" });
 });
 
@@ -24,6 +25,21 @@ test("rejects unknown commands, actions, modes, and extra arguments", () => {
   assert.throws(() => parsePolyCommand(["engine", "enable"]), /Invalid engine action/);
   assert.throws(() => parsePolyCommand(["start", "production"]), /Invalid trading mode/);
   assert.throws(() => parsePolyCommand(["dashboard", "extra"]), /does not accept/);
+  assert.throws(() => parsePolyCommand(["update", "extra"]), /does not accept/);
+});
+
+test("updates an installed service fail-closed before restarting it", () => {
+  assert.deepEqual(updateInvocations({
+    nodeExecutable: "/usr/bin/node",
+    repositoryRoot: "/opt/polymarket-btc-assistant"
+  }), [
+    { command: "systemctl", args: ["stop", "polymarket-btc-assistant.service"] },
+    { command: "git", args: ["pull", "--ff-only"] },
+    { command: "npm", args: ["ci", "--omit=dev"] },
+    { command: "npm", args: ["test"] },
+    { command: "npm", args: ["link"] },
+    { command: "/usr/bin/node", args: ["/opt/polymarket-btc-assistant/src/cli.js", "install"] }
+  ]);
 });
 
 test("maps foreground and systemd commands without shell strings", () => {

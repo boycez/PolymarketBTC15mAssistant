@@ -584,9 +584,21 @@ Press `Ctrl + C` in the terminal.
 
 ### Update to latest version
 
+For an installed Linux systemd service:
+
 ```bash
-git pull
-npm install
+sudo poly update
+```
+
+The command stops the Engine, pulls only fast-forward changes, installs locked
+production dependencies, runs the test suite, refreshes the CLI and systemd
+unit, and starts the Paper Engine only after every step succeeds.
+
+For a local foreground checkout:
+
+```bash
+git pull --ff-only
+npm ci
 npm link
 poly start paper
 ```

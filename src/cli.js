@@ -5,7 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { engineInvocation, foregroundInvocation, POLY_HELP, parsePolyCommand } from "./cli/commands.js";
+import { engineInvocation, foregroundInvocation, POLY_HELP, parsePolyCommand, updateInvocations } from "./cli/commands.js";
 
 const DEPLOYMENT_NAME = "polymarket-btc-assistant";
 const SERVICE_NAME = `${DEPLOYMENT_NAME}.service`;
@@ -36,18 +36,22 @@ function runEngineAction(action) {
   run(invocation.command, invocation.args, { privileged: invocation.privileged });
 }
 
-function installService() {
+function assertDeploymentCommand(command) {
   if (process.platform !== "linux") {
-    throw new Error("poly install is supported only on Linux with systemd.");
+    throw new Error(`poly ${command} is supported only on Linux with systemd.`);
   }
   if (typeof process.getuid !== "function" || process.getuid() !== 0) {
-    throw new Error("poly install requires root. Run: sudo poly install");
+    throw new Error(`poly ${command} requires root. Run: sudo poly ${command}`);
   }
   if (REPOSITORY_ROOT !== `/opt/${DEPLOYMENT_NAME}`) {
-    throw new Error(`Deploy the repository at /opt/${DEPLOYMENT_NAME} before running poly install.`);
+    throw new Error(`Deploy the repository at /opt/${DEPLOYMENT_NAME} before running poly ${command}.`);
   }
   const nodeMajor = Number(process.versions.node.split(".")[0]);
-  if (nodeMajor < 24) throw new Error("poly install requires Node.js 24 or newer.");
+  if (nodeMajor < 24) throw new Error(`poly ${command} requires Node.js 24 or newer.`);
+}
+
+function installService() {
+  assertDeploymentCommand("install");
 
   const account = run("id", ["-u", DEPLOYMENT_NAME], { inherit: false, allowFailure: true });
   if (account.status !== 0) {
@@ -77,6 +81,26 @@ function installService() {
   if (operator && operator !== "root") {
     process.stdout.write(`User ${operator} was added to group ${DEPLOYMENT_NAME}; sign out and back in before running poly dashboard.\n`);
   }
+}
+
+function updateService() {
+  assertDeploymentCommand("update");
+  if (!fs.existsSync(SERVICE_UNIT)) {
+    throw new Error("Engine service is not installed. Run: sudo poly install");
+  }
+
+  const status = run("git", ["status", "--porcelain"], { inherit: false });
+  if (status.stdout.trim()) {
+    throw new Error("Repository has local changes; update aborted before stopping the Engine.");
+  }
+
+  process.stdout.write("Updating Paper Engine; it will remain stopped if any step fails.\n");
+  const invocations = updateInvocations({
+    nodeExecutable: process.execPath,
+    repositoryRoot: REPOSITORY_ROOT
+  });
+  for (const invocation of invocations) run(invocation.command, invocation.args);
+  process.stdout.write("Paper Engine update completed.\n");
 }
 
 function doctor() {
@@ -150,6 +174,10 @@ export async function runPolyCli(argv = process.argv.slice(2)) {
   if (parsed.command === "doctor") return doctor();
   if (parsed.command === "install") {
     installService();
+    return 0;
+  }
+  if (parsed.command === "update") {
+    updateService();
     return 0;
   }
   return 1;

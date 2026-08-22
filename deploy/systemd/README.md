@@ -65,15 +65,18 @@ poly doctor
 
 ## Update
 
-Stop the Engine before replacing files or dependencies:
+Run the root-only update command from any directory:
 
 ```bash
-poly engine stop
-cd /opt/polymarket-btc-assistant
-sudo git pull --ff-only
-sudo npm ci --omit=dev
-sudo poly install
+sudo poly update
 ```
+
+It refuses to run with local repository changes, then stops the Engine, pulls
+with `--ff-only`, installs locked production dependencies, runs the full test
+suite, refreshes the global CLI link, and invokes the updated installer. If any
+step fails, the Engine remains stopped rather than running a partial update.
+Because a restart can miss the exact market-start TWAP, avoid updating near a
+15-minute boundary.
 
 Check status and recent logs after every update:
 

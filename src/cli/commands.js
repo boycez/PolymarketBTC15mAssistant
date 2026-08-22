@@ -11,6 +11,7 @@ Usage:
   poly doctor
   poly version
   sudo poly install
+  sudo poly update
 `;
 
 export function parsePolyCommand(argv) {
@@ -25,7 +26,7 @@ export function parsePolyCommand(argv) {
     if (argument) throw new Error("Version does not accept an argument.");
     return { command: "version" };
   }
-  if (["dashboard", "doctor", "install"].includes(command)) {
+  if (["dashboard", "doctor", "install", "update"].includes(command)) {
     if (argument) throw new Error(`${command} does not accept an argument.`);
     return { command };
   }
@@ -67,4 +68,15 @@ export function engineInvocation(action) {
       : [action, ENGINE_SERVICE],
     privileged: action !== "status"
   };
+}
+
+export function updateInvocations({ nodeExecutable, repositoryRoot }) {
+  return [
+    { command: "systemctl", args: ["stop", ENGINE_SERVICE] },
+    { command: "git", args: ["pull", "--ff-only"] },
+    { command: "npm", args: ["ci", "--omit=dev"] },
+    { command: "npm", args: ["test"] },
+    { command: "npm", args: ["link"] },
+    { command: nodeExecutable, args: [`${repositoryRoot}/src/cli.js`, "install"] }
+  ];
 }
