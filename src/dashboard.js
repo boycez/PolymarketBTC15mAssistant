@@ -12,7 +12,9 @@ function screenWidth(stdout) {
 export function runDashboard({
   socketPath = process.env.POLYMARKET_ENGINE_SOCKET?.trim() || defaultSnapshotSocketPath(),
   stdin = process.stdin,
-  stdout = process.stdout
+  stdout = process.stdout,
+  processRef = process,
+  createClient = (options) => new SnapshotSocketClient(options)
 } = {}) {
   if (!stdin?.isTTY || !stdout?.isTTY) {
     throw new Error("Terminal dashboard requires an interactive TTY.");
@@ -22,6 +24,7 @@ export function runDashboard({
   let latestSnapshot = null;
   let connectionState = "CONNECTING";
   let connectionMessage = "Waiting for Engine";
+  let controlFeedback = null;
   let stopped = false;
 
   const renderText = (text) => {
@@ -57,13 +60,14 @@ export function runDashboard({
       session: {
         ...latestSnapshot.session,
         engineConnection: connectionState,
-        snapshotAgeMs
+        snapshotAgeMs,
+        controlFeedback
       }
     };
     renderText(renderTerminalDashboard(snapshot, { width: screenWidth(stdout) }));
   };
 
-  const client = new SnapshotSocketClient({
+  const client = createClient({
     socketPath,
     onSnapshot: (snapshot) => {
       latestSnapshot = snapshot;
@@ -79,26 +83,64 @@ export function runDashboard({
       }
       connectionMessage = status.message ?? (status.state === "CONNECTING" ? "Waiting for Engine" : status.state);
       render();
+    },
+    onControlResult: (response) => {
+      controlFeedback = `${response.ok ? "OK" : "REJECTED"} ${response.action ?? "command"}: ${response.message}`;
+      if (latestSnapshot && response.control) {
+        latestSnapshot = {
+          ...latestSnapshot,
+          trading: { ...latestSnapshot.trading, control: response.control }
+        };
+      }
+      render();
     }
   });
 
+  const onInput = (key) => {
+    if (key === "\u0003") {
+      stop();
+      processRef.exit();
+      return;
+    }
+    if (connectionState !== "CONNECTED" || latestSnapshot?.trading?.mode !== "live") return;
+    if (String(key).toLowerCase() === "a") client.sendControl("request-arm");
+    if (key === "\r" || key === "\n") client.sendControl("confirm-arm");
+    if (key === "\u001b") client.sendControl("cancel-arm");
+    if (String(key).toLowerCase() === "s") client.sendControl("stop");
+    if (String(key).toLowerCase() === "x") client.sendControl("cancel-all");
+  };
+
+  stdin.setRawMode(true);
+  stdin.setEncoding("utf8");
+  stdin.resume();
+  stdin.on("data", onInput);
+
   const refreshTimer = setInterval(render, 1_000);
+  const onExit = () => stop();
+  const onSigint = () => {
+    stop();
+    processRef.exit();
+  };
+  const onSigterm = () => {
+    stop();
+    processRef.exit();
+  };
   const stop = () => {
     if (stopped) return;
     stopped = true;
     clearInterval(refreshTimer);
     client.stop();
+    stdin.off("data", onInput);
+    stdin.setRawMode(false);
+    stdin.pause();
+    processRef.off("exit", onExit);
+    processRef.off("SIGINT", onSigint);
+    processRef.off("SIGTERM", onSigterm);
     restoreScreen();
   };
-  process.once("exit", stop);
-  process.once("SIGINT", () => {
-    stop();
-    process.exit();
-  });
-  process.once("SIGTERM", () => {
-    stop();
-    process.exit();
-  });
+  processRef.once("exit", onExit);
+  processRef.once("SIGINT", onSigint);
+  processRef.once("SIGTERM", onSigterm);
 
   render();
   client.start();

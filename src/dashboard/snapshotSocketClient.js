@@ -2,6 +2,7 @@ import net from "node:net";
 
 import { RUNTIME_SNAPSHOT_VERSION } from "./runtimeSnapshot.js";
 import { defaultSnapshotSocketPath } from "../engine/snapshotSocketServer.js";
+import { CONTROL_PROTOCOL_VERSION, createControlCommand } from "../engine/controlProtocol.js";
 
 const MAX_BUFFER_BYTES = 1_000_000;
 
@@ -18,21 +19,37 @@ function validateSnapshot(value) {
   return value;
 }
 
+function validateControlResult(value) {
+  if (value.version !== CONTROL_PROTOCOL_VERSION) {
+    throw new Error(`Unsupported control response version: ${value.version ?? "missing"}.`);
+  }
+  if (value.id !== null && (typeof value.id !== "string" || value.id.length > 64)) {
+    throw new Error("Control response id is invalid.");
+  }
+  if (typeof value.ok !== "boolean" || typeof value.code !== "string" || typeof value.message !== "string") {
+    throw new Error("Control response is malformed.");
+  }
+  return value;
+}
+
 export class SnapshotSocketClient {
   constructor({
     socketPath = defaultSnapshotSocketPath(),
     reconnectDelayMs = 1_000,
     onSnapshot = () => {},
-    onStatus = () => {}
+    onStatus = () => {},
+    onControlResult = () => {}
   } = {}) {
     this.socketPath = socketPath;
     this.reconnectDelayMs = reconnectDelayMs;
     this.onSnapshot = onSnapshot;
     this.onStatus = onStatus;
+    this.onControlResult = onControlResult;
     this.socket = null;
     this.reconnectTimer = null;
     this.stopped = true;
     this.buffer = "";
+    this.controlSequence = 0;
   }
 
   start() {
@@ -93,10 +110,27 @@ export class SnapshotSocketClient {
 
   consumeLine(line) {
     try {
-      this.onSnapshot(validateSnapshot(JSON.parse(line)));
+      const value = JSON.parse(line);
+      if (value?.type === "control-result") {
+        this.onControlResult(validateControlResult(value));
+        return;
+      }
+      this.onSnapshot(validateSnapshot(value));
     } catch (error) {
       this.onStatus({ state: "INVALID_SNAPSHOT", message: error?.message ?? String(error) });
     }
+  }
+
+  sendControl(action) {
+    if (!this.socket || this.socket.destroyed || !this.socket.writable) {
+      this.onStatus({ state: "CONTROL_UNAVAILABLE", message: "Engine is not connected." });
+      return null;
+    }
+    this.controlSequence += 1;
+    const id = `${Date.now().toString(36)}-${this.controlSequence.toString(36)}`;
+    const command = createControlCommand({ id, action });
+    this.socket.write(`${JSON.stringify(command)}\n`);
+    return id;
   }
 
   scheduleReconnect() {

@@ -245,6 +245,7 @@ export function renderTerminalDashboard(snapshot, { width = 80 } = {}) {
     section("Session"),
     "",
     session.engineConnection ? kv("Engine Link:", `${session.engineConnection} | snapshot ${formatSnapshotAge(session.snapshotAgeMs)} old`) : null,
+    session.controlFeedback ? kv("Control Reply:", session.controlFeedback) : null,
     kv("ET | Session:", `${ANSI.white}${fmtEtTime(generatedAt)}${ANSI.reset} | ${ANSI.white}${btcSession(generatedAt)}${ANSI.reset}`),
     "",
     separator(safeWidth),

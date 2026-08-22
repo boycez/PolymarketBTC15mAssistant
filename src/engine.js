@@ -1,4 +1,5 @@
 import { SnapshotSocketServer, defaultSnapshotSocketPath } from "./engine/snapshotSocketServer.js";
+import { executeControlCommand } from "./engine/controlProtocol.js";
 import { runApplication } from "./index.js";
 
 const socketPath = process.env.POLYMARKET_ENGINE_SOCKET?.trim() || defaultSnapshotSocketPath();
@@ -10,7 +11,11 @@ try {
   await runApplication({
     renderDashboard: false,
     onSnapshot: (snapshot) => snapshotServer.publish(snapshot),
-    onShutdown: () => snapshotServer.close()
+    onShutdown: () => snapshotServer.close(),
+    onRuntimeReady: (runtime) => {
+      snapshotServer.setControlHandler((command) => executeControlCommand(runtime, command));
+    },
+    externalControlsEnabled: true
   });
 } catch (error) {
   await snapshotServer.close().catch(() => {});

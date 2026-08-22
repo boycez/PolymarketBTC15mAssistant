@@ -3,6 +3,10 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 
+import { CONTROL_PROTOCOL_VERSION, parseControlCommand } from "./controlProtocol.js";
+
+const MAX_CONTROL_BUFFER_BYTES = 65_536;
+
 export function defaultSnapshotSocketPath() {
   const userId = typeof process.getuid === "function" ? process.getuid() : "user";
   return path.join(os.tmpdir(), `polymarket-btc15m-${userId}.sock`);
@@ -26,12 +30,15 @@ async function socketIsActive(socketPath) {
 }
 
 export class SnapshotSocketServer {
-  constructor({ socketPath = defaultSnapshotSocketPath() } = {}) {
+  constructor({ socketPath = defaultSnapshotSocketPath(), onControlCommand = null } = {}) {
     this.socketPath = socketPath;
     this.server = null;
     this.clients = new Set();
     this.ownsSocket = false;
     this.latestMessage = null;
+    this.onControlCommand = onControlCommand;
+    this.clientBuffers = new Map();
+    this.commandQueue = Promise.resolve();
   }
 
   async start() {
@@ -51,8 +58,16 @@ export class SnapshotSocketServer {
     const server = net.createServer((client) => {
       client.setEncoding("utf8");
       this.clients.add(client);
-      client.once("close", () => this.clients.delete(client));
-      client.once("error", () => this.clients.delete(client));
+      this.clientBuffers.set(client, "");
+      client.on("data", (chunk) => this.consumeControlData(client, chunk));
+      client.once("close", () => {
+        this.clients.delete(client);
+        this.clientBuffers.delete(client);
+      });
+      client.once("error", () => {
+        this.clients.delete(client);
+        this.clientBuffers.delete(client);
+      });
       if (this.latestMessage) client.write(this.latestMessage);
     });
 
@@ -78,9 +93,67 @@ export class SnapshotSocketServer {
     }
   }
 
+  setControlHandler(handler) {
+    this.onControlCommand = typeof handler === "function" ? handler : null;
+  }
+
+  consumeControlData(client, chunk) {
+    let buffer = (this.clientBuffers.get(client) ?? "") + chunk;
+    if (Buffer.byteLength(buffer, "utf8") > MAX_CONTROL_BUFFER_BYTES) {
+      this.writeControlError(client, null, "INVALID_COMMAND", "Control command exceeds 64 KB.");
+      client.destroy();
+      return;
+    }
+
+    let newline = buffer.indexOf("\n");
+    while (newline >= 0) {
+      const line = buffer.slice(0, newline).trim();
+      buffer = buffer.slice(newline + 1);
+      if (line) this.enqueueControlCommand(client, line);
+      newline = buffer.indexOf("\n");
+    }
+    this.clientBuffers.set(client, buffer);
+  }
+
+  enqueueControlCommand(client, line) {
+    this.commandQueue = this.commandQueue.then(async () => {
+      let command;
+      try {
+        command = parseControlCommand(line);
+      } catch (error) {
+        this.writeControlError(client, null, "INVALID_COMMAND", error?.message ?? String(error));
+        return;
+      }
+      if (!this.onControlCommand) {
+        this.writeControlError(client, command, "CONTROL_UNAVAILABLE", "Engine controls are unavailable.");
+        return;
+      }
+
+      const response = await this.onControlCommand(command);
+      if (!client.destroyed) client.write(`${JSON.stringify(response)}\n`);
+    }).catch(() => {
+      this.writeControlError(client, null, "ACTION_FAILED", "Control action failed.");
+    });
+  }
+
+  writeControlError(client, command, code, message) {
+    if (client.destroyed) return;
+    client.write(`${JSON.stringify({
+      type: "control-result",
+      version: CONTROL_PROTOCOL_VERSION,
+      id: command?.id ?? null,
+      action: command?.action ?? null,
+      ok: false,
+      code,
+      message,
+      control: null
+    })}\n`);
+  }
+
   async close() {
     for (const client of this.clients) client.destroy();
     this.clients.clear();
+    this.clientBuffers.clear();
 
     const server = this.server;
     this.server = null;

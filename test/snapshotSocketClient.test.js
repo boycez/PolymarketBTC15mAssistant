@@ -98,3 +98,44 @@ test("reconnects and receives snapshots after the engine restarts", async (conte
   await waitFor(() => received.length === 2);
   assert.deepEqual(received.map((value) => value.session.sequence), [1, 2]);
 });
+
+test("sends controls and routes responses separately from snapshots", async (context) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "poly-dashboard-test-"));
+  const socketPath = path.join(directory, "engine.sock");
+  const server = new SnapshotSocketServer({
+    socketPath,
+    onControlCommand: async (command) => ({
+      type: "control-result",
+      version: 1,
+      id: command.id,
+      action: command.action,
+      ok: true,
+      code: "OK",
+      message: "done",
+      control: { state: "PENDING_CONFIRMATION", text: "Confirm" }
+    })
+  });
+  const snapshots = [];
+  const responses = [];
+  const client = new SnapshotSocketClient({
+    socketPath,
+    onSnapshot: (value) => snapshots.push(value),
+    onControlResult: (value) => responses.push(value)
+  });
+  context.after(async () => {
+    client.stop();
+    await server.close();
+    await fs.rm(directory, { recursive: true, force: true });
+  });
+
+  await server.start();
+  server.publish(snapshot(1));
+  client.start();
+  await waitFor(() => snapshots.length === 1);
+  const requestId = client.sendControl("request-arm");
+
+  await waitFor(() => responses.length === 1);
+  assert.equal(responses[0].id, requestId);
+  assert.equal(responses[0].control.state, "PENDING_CONFIRMATION");
+  assert.equal(snapshots.length, 1);
+});

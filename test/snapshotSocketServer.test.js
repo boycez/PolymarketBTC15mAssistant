@@ -81,3 +81,63 @@ test("refuses to replace a socket owned by an active engine", async (context) =>
   await first.start();
   await assert.rejects(() => second.start(), /already in use/);
 });
+
+test("parses and responds to a control command", async (context) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "poly-engine-test-"));
+  const socketPath = path.join(directory, "engine.sock");
+  const commands = [];
+  const server = new SnapshotSocketServer({
+    socketPath,
+    onControlCommand: async (command) => {
+      commands.push(command);
+      return {
+        type: "control-result",
+        version: 1,
+        id: command.id,
+        action: command.action,
+        ok: true,
+        code: "OK",
+        message: "done",
+        control: { state: "PENDING_CONFIRMATION", text: "Confirm" }
+      };
+    }
+  });
+  context.after(async () => {
+    await server.close();
+    await fs.rm(directory, { recursive: true, force: true });
+  });
+
+  await server.start();
+  const client = await connect(socketPath);
+  context.after(() => client.destroy());
+  const response = readLine(client);
+  client.write(`${JSON.stringify({ type: "control", version: 1, id: "arm-1", action: "request-arm" })}\n`);
+
+  assert.equal((await response).includes("control-result"), true);
+  assert.equal(commands[0].action, "request-arm");
+});
+
+test("rejects malformed control input without calling the handler", async (context) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "poly-engine-test-"));
+  const socketPath = path.join(directory, "engine.sock");
+  let calls = 0;
+  const server = new SnapshotSocketServer({
+    socketPath,
+    onControlCommand: async () => {
+      calls += 1;
+    }
+  });
+  context.after(async () => {
+    await server.close();
+    await fs.rm(directory, { recursive: true, force: true });
+  });
+
+  await server.start();
+  const client = await connect(socketPath);
+  context.after(() => client.destroy());
+  const response = readLine(client);
+  client.write("not-json\n");
+
+  assert.equal(JSON.parse(await response).code, "INVALID_COMMAND");
+  assert.equal(calls, 0);
+});

@@ -248,10 +248,9 @@ default path is:
 Set `POLYMARKET_ENGINE_SOCKET` to use a different local socket path. Starting a
 second Engine against an active socket fails instead of replacing the running
 Engine. Closing an attached client does not stop the Engine. Live mode remains
-stopped after every startup; remote arming controls are not enabled by the
-snapshot-only socket.
+stopped after every startup.
 
-Attach the read-only terminal Dashboard from a second terminal:
+Attach the terminal Dashboard from a second terminal:
 
 ```bash
 npm run dashboard
@@ -263,6 +262,18 @@ the Engine restarts. Pressing `Ctrl+C` detaches only the Dashboard; the Engine
 continues running. The transport is a local Unix socket, not a browser or TCP
 service, and snapshots with malformed JSON or unsupported protocol versions are
 ignored.
+
+In Live mode, the owner-only socket accepts a strict versioned control protocol.
+The Dashboard preserves the same two-step safety flow as combined mode:
+
+- Press `A` to request arming, then `Enter` to confirm.
+- Press `Esc` to cancel a pending arming request.
+- Press `S` to stop new orders and cancel all open CLOB orders.
+- Press `X` to cancel open CLOB orders without changing the arm state.
+
+Paper mode rejects all control commands. Unknown actions, malformed commands,
+oversized frames, and unsupported protocol versions fail closed. Control errors
+return generic messages and never include signer or Relayer credentials.
 
 For local development, combined mode remains available and does not require a
 second terminal:
@@ -375,10 +386,11 @@ terminal:
   orders.
 - Press `Ctrl+C` to stop, cancel open orders, and exit.
 
-The enabled state is never persisted across restarts. If stdin or stdout is not
-an interactive TTY, automatic orders remain stopped. Stopping does not sell or
-otherwise close positions that have already filled; those positions continue to
-settlement.
+The enabled state is never persisted across restarts. A combined Live process
+requires an interactive TTY for controls. A headless Live Engine has no local
+keyboard controls and remains stopped until its owner-only terminal Dashboard
+completes `A` then `Enter`. Stopping does not sell or otherwise close positions
+that have already filled; those positions continue to settlement.
 
 For a new wallet, run once with `LIVE_TRADING_SETUP_APPROVALS=true`. This calls
 the SDK's on-chain/gasless trading approval workflow during startup. Review the

@@ -333,7 +333,9 @@ async function fetchPolymarketSnapshot() {
 export async function runApplication({
   renderDashboard = true,
   onSnapshot = () => {},
-  onShutdown = async () => {}
+  onShutdown = async () => {},
+  onRuntimeReady = async () => {},
+  externalControlsEnabled = false
 } = {}) {
   const livePrivateKey = await acquireLivePrivateKey({
     mode: CONFIG.trading.mode,
@@ -352,6 +354,7 @@ export async function runApplication({
       relayerApiKey: liveRelayerApiKey
     }
   });
+  await onRuntimeReady(tradingRuntime);
   let shuttingDown = false;
   const shutdown = async (signal) => {
     if (shuttingDown) return;
@@ -599,6 +602,8 @@ export async function runApplication({
           ? "Live controls unavailable"
         : liveKeyboardEnabled
           ? "A enable | S stop"
+          : externalControlsEnabled
+            ? "A enable | S stop | X cancel orders"
           : "Interactive terminal required";
 
       const dashboardSnapshot = createRuntimeSnapshot({
