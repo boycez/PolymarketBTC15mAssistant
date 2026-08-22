@@ -2,6 +2,15 @@ function ageMs(nowMs, timestampMs) {
   return Number.isFinite(timestampMs) ? Math.max(0, nowMs - timestampMs) : null;
 }
 
+export function normalizeEpochMs(value) {
+  const timestamp = Number(value);
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return null;
+  if (timestamp >= 1e17) return Math.trunc(timestamp / 1e6);
+  if (timestamp >= 1e14) return Math.trunc(timestamp / 1e3);
+  if (timestamp >= 1e11) return Math.trunc(timestamp);
+  return Math.trunc(timestamp * 1e3);
+}
+
 function compactBook(book) {
   if (!book) return null;
   return {
@@ -31,9 +40,13 @@ export function buildStrategyMarketContext({
   twapFreshnessMs,
   streamHealth
 }) {
+  const normalizedBinanceWsAtMs = normalizeEpochMs(binanceWsAtMs);
+  const normalizedPolymarketCurrentAtMs = normalizeEpochMs(polymarketCurrentAtMs);
+  const normalizedChainlinkAtMs = normalizeEpochMs(chainlinkAtMs);
+  const normalizedTwapObservedAtMs = normalizeEpochMs(twapObservedAtMs);
   const latestKlineCloseTimeMs = Number.isFinite(latestKline?.closeTime) ? latestKline.closeTime : null;
   const latestKlineClosed = latestKlineCloseTimeMs === null ? null : latestKlineCloseTimeMs < nowMs;
-  const timestamps = [binanceWsAtMs, polymarketCurrentAtMs, chainlinkAtMs, twapObservedAtMs].filter(Number.isFinite);
+  const timestamps = [normalizedBinanceWsAtMs, normalizedPolymarketCurrentAtMs, normalizedChainlinkAtMs, normalizedTwapObservedAtMs].filter(Number.isFinite);
   const sourceTimestampRangeMs = timestamps.length >= 2 ? Math.max(...timestamps) - Math.min(...timestamps) : null;
   const reasons = [];
   const limitations = [
@@ -44,9 +57,9 @@ export function buildStrategyMarketContext({
 
   if (latestKlineClosed === false) reasons.push("unfinished_kline");
   if (latestKlineCloseTimeMs === null) reasons.push("kline_timestamp_unavailable");
-  if (!Number.isFinite(binanceWsAtMs)) reasons.push("binance_ws_timestamp_unavailable");
-  if (!Number.isFinite(polymarketCurrentAtMs)) reasons.push("polymarket_current_timestamp_unavailable");
-  if (!Number.isFinite(twapObservedAtMs)) reasons.push("twap_timestamp_unavailable");
+  if (!Number.isFinite(normalizedBinanceWsAtMs)) reasons.push("binance_ws_timestamp_unavailable");
+  if (!Number.isFinite(normalizedPolymarketCurrentAtMs)) reasons.push("polymarket_current_timestamp_unavailable");
+  if (!Number.isFinite(normalizedTwapObservedAtMs)) reasons.push("twap_timestamp_unavailable");
   if (!Number.isFinite(marketPrices?.up) || !Number.isFinite(marketPrices?.down)) reasons.push("market_quote_incomplete");
   if (!Number.isFinite(orderBooks?.up?.bestAsk)) reasons.push("up_book_incomplete");
   if (!Number.isFinite(orderBooks?.down?.bestAsk)) reasons.push("down_book_incomplete");
@@ -75,16 +88,16 @@ export function buildStrategyMarketContext({
       latestKlineCloseTimeMs,
       latestKlineClosed,
       klineAgeMs: ageMs(nowMs, latestKlineCloseTimeMs),
-      binanceWsAtMs: binanceWsAtMs ?? null,
-      binanceWsAgeMs: ageMs(nowMs, binanceWsAtMs),
+      binanceWsAtMs: normalizedBinanceWsAtMs,
+      binanceWsAgeMs: ageMs(nowMs, normalizedBinanceWsAtMs),
       binanceTickerAgeMs: null,
       marketQuoteAgeMs: null,
       orderBookAgeMs: null,
-      polymarketCurrentAtMs: polymarketCurrentAtMs ?? null,
-      polymarketCurrentAgeMs: ageMs(nowMs, polymarketCurrentAtMs),
-      chainlinkAtMs: chainlinkAtMs ?? null,
-      chainlinkAgeMs: ageMs(nowMs, chainlinkAtMs),
-      twapObservedAtMs: twapObservedAtMs ?? null,
+      polymarketCurrentAtMs: normalizedPolymarketCurrentAtMs,
+      polymarketCurrentAgeMs: ageMs(nowMs, normalizedPolymarketCurrentAtMs),
+      chainlinkAtMs: normalizedChainlinkAtMs,
+      chainlinkAgeMs: ageMs(nowMs, normalizedChainlinkAtMs),
+      twapObservedAtMs: normalizedTwapObservedAtMs,
       twapFreshnessMs: twapFreshnessMs ?? null,
       sourceTimestampRangeMs,
       timestampSemantics: "mixed_source_and_receive",
