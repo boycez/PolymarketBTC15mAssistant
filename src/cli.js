@@ -3,13 +3,14 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 import { engineInvocation, foregroundInvocation, POLY_HELP, parsePolyCommand } from "./cli/commands.js";
 
-const SERVICE_NAME = "polymarket-engine.service";
-const SERVICE_SOCKET = "/run/polymarket-btc15m/engine.sock";
-const SERVICE_ENV = "/etc/polymarket-btc15m/engine.env";
+const DEPLOYMENT_NAME = "polymarket-btc-assistant";
+const SERVICE_NAME = `${DEPLOYMENT_NAME}.service`;
+const SERVICE_SOCKET = `/run/${DEPLOYMENT_NAME}/engine.sock`;
+const SERVICE_ENV = `/etc/${DEPLOYMENT_NAME}/engine.env`;
 const SERVICE_UNIT = `/etc/systemd/system/${SERVICE_NAME}`;
 const REPOSITORY_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -42,30 +43,30 @@ function installService() {
   if (typeof process.getuid !== "function" || process.getuid() !== 0) {
     throw new Error("poly install requires root. Run: sudo poly install");
   }
-  if (REPOSITORY_ROOT !== "/opt/polymarket-btc15m") {
-    throw new Error("Deploy the repository at /opt/polymarket-btc15m before running poly install.");
+  if (REPOSITORY_ROOT !== `/opt/${DEPLOYMENT_NAME}`) {
+    throw new Error(`Deploy the repository at /opt/${DEPLOYMENT_NAME} before running poly install.`);
   }
   const nodeMajor = Number(process.versions.node.split(".")[0]);
   if (nodeMajor < 24) throw new Error("poly install requires Node.js 24 or newer.");
 
-  const account = run("id", ["-u", "polymarket"], { inherit: false, allowFailure: true });
+  const account = run("id", ["-u", DEPLOYMENT_NAME], { inherit: false, allowFailure: true });
   if (account.status !== 0) {
-    run("useradd", ["--system", "--home", "/nonexistent", "--shell", "/usr/sbin/nologin", "polymarket"]);
+    run("useradd", ["--system", "--home", "/nonexistent", "--shell", "/usr/sbin/nologin", DEPLOYMENT_NAME]);
   }
 
-  run("install", ["-d", "-o", "root", "-g", "polymarket", "-m", "0750", "/etc/polymarket-btc15m"]);
-  run("install", ["-d", "-o", "polymarket", "-g", "polymarket", "-m", "0700", path.join(REPOSITORY_ROOT, "logs")]);
-  run("chown", ["-R", "root:polymarket", REPOSITORY_ROOT]);
-  run("chown", ["polymarket:polymarket", path.join(REPOSITORY_ROOT, "logs")]);
+  run("install", ["-d", "-o", "root", "-g", DEPLOYMENT_NAME, "-m", "0750", `/etc/${DEPLOYMENT_NAME}`]);
+  run("install", ["-d", "-o", DEPLOYMENT_NAME, "-g", DEPLOYMENT_NAME, "-m", "0700", path.join(REPOSITORY_ROOT, "logs")]);
+  run("chown", ["-R", `root:${DEPLOYMENT_NAME}`, REPOSITORY_ROOT]);
+  run("chown", [`${DEPLOYMENT_NAME}:${DEPLOYMENT_NAME}`, path.join(REPOSITORY_ROOT, "logs")]);
   run("chmod", ["0700", path.join(REPOSITORY_ROOT, "logs")]);
 
   if (!fs.existsSync(SERVICE_ENV)) {
     run("install", ["-m", "0600", path.join(REPOSITORY_ROOT, "deploy/systemd/engine.env.example"), SERVICE_ENV]);
   }
-  run("install", ["-m", "0644", path.join(REPOSITORY_ROOT, "deploy/systemd/polymarket-engine.service"), SERVICE_UNIT]);
+  run("install", ["-m", "0644", path.join(REPOSITORY_ROOT, `deploy/systemd/${SERVICE_NAME}`), SERVICE_UNIT]);
 
   const operator = String(process.env.SUDO_USER ?? "").trim();
-  if (operator && operator !== "root") run("usermod", ["-aG", "polymarket", operator]);
+  if (operator && operator !== "root") run("usermod", ["-aG", DEPLOYMENT_NAME, operator]);
 
   run("systemctl", ["daemon-reload"]);
   const analyzer = run("systemd-analyze", ["verify", SERVICE_UNIT], { allowFailure: true });
@@ -74,7 +75,7 @@ function installService() {
 
   process.stdout.write("Paper Engine installed and started.\n");
   if (operator && operator !== "root") {
-    process.stdout.write(`User ${operator} was added to group polymarket; sign out and back in before running poly dashboard.\n`);
+    process.stdout.write(`User ${operator} was added to group ${DEPLOYMENT_NAME}; sign out and back in before running poly dashboard.\n`);
   }
 }
 
@@ -154,7 +155,16 @@ export async function runPolyCli(argv = process.argv.slice(2)) {
   return 1;
 }
 
-const isDirectRun = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+function isDirectInvocation(invocationPath) {
+  if (!invocationPath) return false;
+  try {
+    return fs.realpathSync(invocationPath) === fileURLToPath(import.meta.url);
+  } catch {
+    return false;
+  }
+}
+
+const isDirectRun = isDirectInvocation(process.argv[1]);
 if (isDirectRun) {
   try {
     process.exitCode = await runPolyCli();

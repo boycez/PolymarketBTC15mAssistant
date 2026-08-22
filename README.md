@@ -269,7 +269,7 @@ newline-delimited JSON over an owner-only (`0600`) local Unix socket. The
 default path is:
 
 ```text
-/tmp/polymarket-btc15m-<uid>.sock
+/tmp/polymarket-btc-assistant-<uid>.sock
 ```
 
 Set `POLYMARKET_ENGINE_SOCKET` to use a different local socket path. Starting a

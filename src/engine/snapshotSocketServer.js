@@ -9,7 +9,7 @@ const MAX_CONTROL_BUFFER_BYTES = 65_536;
 
 export function defaultSnapshotSocketPath() {
   const userId = typeof process.getuid === "function" ? process.getuid() : "user";
-  return path.join(os.tmpdir(), `polymarket-btc15m-${userId}.sock`);
+  return path.join(os.tmpdir(), `polymarket-btc-assistant-${userId}.sock`);
 }
 
 export function parseSnapshotSocketMode(value = "0600") {

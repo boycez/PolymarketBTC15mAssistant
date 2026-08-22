@@ -8,19 +8,19 @@ StartLimitBurst=5
 
 [Service]
 Type=simple
-User=polymarket
-Group=polymarket
-WorkingDirectory=/opt/polymarket-btc15m
+User=polymarket-btc-assistant
+Group=polymarket-btc-assistant
+WorkingDirectory=/opt/polymarket-btc-assistant
 Environment=NODE_ENV=production
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
-EnvironmentFile=/etc/polymarket-btc15m/engine.env
-ExecStart=/usr/bin/env node /opt/polymarket-btc15m/src/engine.js
+EnvironmentFile=/etc/polymarket-btc-assistant/engine.env
+ExecStart=/usr/bin/env node /opt/polymarket-btc-assistant/src/engine.js
 Restart=on-failure
 RestartSec=5
 KillSignal=SIGTERM
 TimeoutStopSec=30
 
-RuntimeDirectory=polymarket-btc15m
+RuntimeDirectory=polymarket-btc-assistant
 RuntimeDirectoryMode=0750
 UMask=0077
 
@@ -40,11 +40,11 @@ LockPersonality=true
 CapabilityBoundingSet=
 AmbientCapabilities=
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-ReadWritePaths=/opt/polymarket-btc15m/logs /run/polymarket-btc15m
+ReadWritePaths=/opt/polymarket-btc-assistant/logs /run/polymarket-btc-assistant
 
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=polymarket-engine
+SyslogIdentifier=polymarket-btc-assistant
 
 [Install]
 WantedBy=multi-user.target

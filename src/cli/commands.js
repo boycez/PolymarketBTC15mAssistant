@@ -1,3 +1,4 @@
+const ENGINE_SERVICE = "polymarket-btc-assistant.service";
 const ENGINE_ACTIONS = new Set(["start", "stop", "restart", "status", "logs"]);
 const TRADING_MODES = new Set(["paper", "live"]);
 
@@ -55,15 +56,15 @@ export function engineInvocation(action) {
   if (action === "logs") {
     return {
       command: "journalctl",
-      args: ["-u", "polymarket-engine.service", "-f"],
+      args: ["-u", ENGINE_SERVICE, "-f"],
       privileged: true
     };
   }
   return {
     command: "systemctl",
     args: action === "status"
-      ? ["status", "polymarket-engine.service", "--no-pager"]
-      : [action, "polymarket-engine.service"],
+      ? ["status", ENGINE_SERVICE, "--no-pager"]
+      : [action, ENGINE_SERVICE],
     privileged: action !== "status"
   };
 }

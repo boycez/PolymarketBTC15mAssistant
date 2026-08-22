@@ -5,7 +5,7 @@ This deployment runs the Paper Engine continuously on an existing Azure Linux VM
 ## Prerequisites
 
 - Node.js 24 or newer installed system-wide.
-- The repository deployed at `/opt/polymarket-btc15m`.
+- The repository deployed at `/opt/polymarket-btc-assistant`.
 - Dependencies installed with `npm ci --omit=dev`.
 - Root access for the one-time service installation.
 
@@ -21,16 +21,16 @@ Deploy the repository, install production dependencies, and register `poly`
 with the system Node.js installation:
 
 ```bash
-cd /opt/polymarket-btc15m
+cd /opt/polymarket-btc-assistant
 sudo npm ci --omit=dev
 sudo npm link
 sudo poly install
 ```
 
 `poly install` is Linux/root-only and requires the repository to be exactly at
-`/opt/polymarket-btc15m`. It:
+`/opt/polymarket-btc-assistant`. It:
 
-- creates the non-login `polymarket` service account when needed;
+- creates the non-login `polymarket-btc-assistant` service account when needed;
 - keeps application files root-owned and only `logs/` service-writable;
 - installs the Paper-only environment and hardened unit;
 - verifies the unit with `systemd-analyze verify`;
@@ -46,8 +46,8 @@ the service account:
 poly dashboard
 ```
 
-The unit creates `/run/polymarket-btc15m` with mode `0750` on every boot. Its
-Unix socket is `/run/polymarket-btc15m/engine.sock` with mode `0660`; only the
+The unit creates `/run/polymarket-btc-assistant` with mode `0750` on every boot. Its
+Unix socket is `/run/polymarket-btc-assistant/engine.sock` with mode `0660`; only the
 service owner and trusted group can access it. No TCP listener is opened.
 
 ## Operate
@@ -69,7 +69,7 @@ Stop the Engine before replacing files or dependencies:
 
 ```bash
 poly engine stop
-cd /opt/polymarket-btc15m
+cd /opt/polymarket-btc-assistant
 sudo git pull --ff-only
 sudo npm ci --omit=dev
 sudo poly install
@@ -83,8 +83,8 @@ poly engine logs
 ```
 
 For low-level troubleshooting, the CLI maps these operations to
-`systemctl polymarket-engine.service` and
-`journalctl -u polymarket-engine.service -f` without constructing shell command
+`systemctl polymarket-btc-assistant.service` and
+`journalctl -u polymarket-btc-assistant.service -f` without constructing shell command
 strings.
 
 ## Live safety boundary
