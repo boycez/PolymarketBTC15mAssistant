@@ -69,17 +69,39 @@ export function startPolymarketTwapStream({
   let reconnectTimer = null;
   let heartbeat = null;
   let last = null;
+  let connectedAt = null;
+  let lastMessageAt = null;
+  let reconnectCount = 0;
+  let lastError = null;
 
   const addSample = (sample) => {
     samples.set(sample.observedAtMs, sample);
     while (samples.size > maxSamples) samples.delete(samples.keys().next().value);
     last = sample;
+    lastMessageAt = Date.now();
     if (typeof onUpdate === "function") onUpdate(sample);
   };
 
   const stopHeartbeat = () => {
     if (heartbeat) clearInterval(heartbeat);
     heartbeat = null;
+  };
+
+  const scheduleReconnect = (reason) => {
+    if (closed || reconnectTimer) return;
+    connected = false;
+    lastError = reason instanceof Error ? reason.message : reason ? String(reason) : lastError;
+    stopHeartbeat();
+    try {
+      socket?.terminate();
+    } catch {
+      // ignore
+    }
+    socket = null;
+    reconnectCount += 1;
+    const wait = reconnectMs;
+    reconnectMs = Math.min(10_000, Math.floor(reconnectMs * 1.5));
+    reconnectTimer = setTimeout(connect, wait);
   };
 
   const connect = () => {
@@ -90,24 +112,11 @@ export function startPolymarketTwapStream({
       agent: wsAgentForUrl(wsUrl)
     });
 
-    const scheduleReconnect = () => {
-      if (closed || reconnectTimer) return;
-      connected = false;
-      stopHeartbeat();
-      try {
-        socket?.terminate();
-      } catch {
-        // ignore
-      }
-      socket = null;
-      const wait = reconnectMs;
-      reconnectMs = Math.min(10_000, Math.floor(reconnectMs * 1.5));
-      reconnectTimer = setTimeout(connect, wait);
-    };
-
     socket.on("open", () => {
       connected = true;
+      connectedAt = Date.now();
       reconnectMs = 500;
+      lastError = null;
       try {
         socket.send(JSON.stringify({
           action: "subscribe",
@@ -154,7 +163,7 @@ export function startPolymarketTwapStream({
     });
 
     socket.on("close", scheduleReconnect);
-    socket.on("error", scheduleReconnect);
+    socket.on("error", (error) => scheduleReconnect(error));
   };
 
   connect();
@@ -168,6 +177,14 @@ export function startPolymarketTwapStream({
     },
     isConnected() {
       return connected;
+    },
+    getHealth() {
+      return { enabled: Boolean(wsUrl), connected, connectedAt, lastMessageAt, reconnectCount, lastError };
+    },
+    restart(reason = "manual_restart") {
+      if (closed || !wsUrl) return false;
+      scheduleReconnect(reason);
+      return true;
     },
     close() {
       closed = true;

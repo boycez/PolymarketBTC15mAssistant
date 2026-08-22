@@ -19,6 +19,26 @@ export function startBinanceTradeStream({ symbol = CONFIG.symbol, onUpdate } = {
   let reconnectTimer = null;
   let lastPrice = null;
   let lastTs = null;
+  let connected = false;
+  let connectedAt = null;
+  let reconnectCount = 0;
+  let lastError = null;
+
+  const scheduleReconnect = (reason) => {
+    if (closed || reconnectTimer) return;
+    connected = false;
+    lastError = reason instanceof Error ? reason.message : reason ? String(reason) : lastError;
+    try {
+      ws?.terminate();
+    } catch {
+      // ignore
+    }
+    ws = null;
+    reconnectCount += 1;
+    const wait = reconnectMs;
+    reconnectMs = Math.min(10_000, Math.floor(reconnectMs * 1.5));
+    reconnectTimer = setTimeout(connect, wait);
+  };
 
   const connect = () => {
     if (closed) return;
@@ -28,7 +48,10 @@ export function startBinanceTradeStream({ symbol = CONFIG.symbol, onUpdate } = {
     ws = new WebSocket(url, { agent: wsAgentForUrl(url) });
 
     ws.on("open", () => {
+      connected = true;
+      connectedAt = Date.now();
       reconnectMs = 500;
+      lastError = null;
     });
 
     ws.on("message", (buf) => {
@@ -44,21 +67,8 @@ export function startBinanceTradeStream({ symbol = CONFIG.symbol, onUpdate } = {
       }
     });
 
-    const scheduleReconnect = () => {
-      if (closed || reconnectTimer) return;
-      try {
-        ws?.terminate();
-      } catch {
-        // ignore
-      }
-      ws = null;
-      const wait = reconnectMs;
-      reconnectMs = Math.min(10_000, Math.floor(reconnectMs * 1.5));
-      reconnectTimer = setTimeout(connect, wait);
-    };
-
     ws.on("close", scheduleReconnect);
-    ws.on("error", scheduleReconnect);
+    ws.on("error", (error) => scheduleReconnect(error));
   };
 
   connect();
@@ -67,8 +77,17 @@ export function startBinanceTradeStream({ symbol = CONFIG.symbol, onUpdate } = {
     getLast() {
       return { price: lastPrice, ts: lastTs };
     },
+    getHealth() {
+      return { enabled: true, connected, connectedAt, lastMessageAt: lastTs, reconnectCount, lastError };
+    },
+    restart(reason = "manual_restart") {
+      if (closed) return false;
+      scheduleReconnect(reason);
+      return true;
+    },
     close() {
       closed = true;
+      connected = false;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       reconnectTimer = null;
       try {

@@ -40,9 +40,30 @@ export function startPolymarketChainlinkPriceStream({
   let closed = false;
   let reconnectMs = 500;
   let reconnectTimer = null;
+  let connected = false;
+  let connectedAt = null;
+  let lastMessageAt = null;
+  let reconnectCount = 0;
+  let lastError = null;
 
   let lastPrice = null;
   let lastUpdatedAt = null;
+
+  const scheduleReconnect = (reason) => {
+    if (closed || reconnectTimer) return;
+    connected = false;
+    lastError = reason instanceof Error ? reason.message : reason ? String(reason) : lastError;
+    try {
+      ws?.terminate();
+    } catch {
+      // ignore
+    }
+    ws = null;
+    reconnectCount += 1;
+    const wait = reconnectMs;
+    reconnectMs = Math.min(10_000, Math.floor(reconnectMs * 1.5));
+    reconnectTimer = setTimeout(connect, wait);
+  };
 
   const connect = () => {
     if (closed) return;
@@ -53,21 +74,11 @@ export function startPolymarketChainlinkPriceStream({
       agent: wsAgentForUrl(wsUrl)
     });
 
-    const scheduleReconnect = () => {
-      if (closed || reconnectTimer) return;
-      try {
-        ws?.terminate();
-      } catch {
-        // ignore
-      }
-      ws = null;
-      const wait = reconnectMs;
-      reconnectMs = Math.min(10_000, Math.floor(reconnectMs * 1.5));
-      reconnectTimer = setTimeout(connect, wait);
-    };
-
     ws.on("open", () => {
+      connected = true;
+      connectedAt = Date.now();
       reconnectMs = 500;
+      lastError = null;
       try {
         ws.send(
           JSON.stringify({
@@ -102,6 +113,7 @@ export function startPolymarketChainlinkPriceStream({
 
       lastPrice = price;
       lastUpdatedAt = updatedAtMs ?? lastUpdatedAt;
+      lastMessageAt = Date.now();
 
       if (typeof onUpdate === "function") {
         onUpdate({ price: lastPrice, updatedAt: lastUpdatedAt, source: "polymarket_ws" });
@@ -109,7 +121,7 @@ export function startPolymarketChainlinkPriceStream({
     });
 
     ws.on("close", scheduleReconnect);
-    ws.on("error", scheduleReconnect);
+    ws.on("error", (error) => scheduleReconnect(error));
   };
 
   connect();
@@ -118,8 +130,17 @@ export function startPolymarketChainlinkPriceStream({
     getLast() {
       return { price: lastPrice, updatedAt: lastUpdatedAt, source: "polymarket_ws" };
     },
+    getHealth() {
+      return { enabled: true, connected, connectedAt, lastMessageAt, reconnectCount, lastError };
+    },
+    restart(reason = "manual_restart") {
+      if (closed) return false;
+      scheduleReconnect(reason);
+      return true;
+    },
     close() {
       closed = true;
+      connected = false;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       reconnectTimer = null;
       try {

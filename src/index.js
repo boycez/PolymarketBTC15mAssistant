@@ -30,6 +30,7 @@ import { formatRecommendationReason, strategyGateCategory } from "./trading/stra
 import { createRuntimeSnapshot } from "./dashboard/runtimeSnapshot.js";
 import { renderTerminalDashboard } from "./dashboard/terminalRenderer.js";
 import { pathToFileURL } from "node:url";
+import { StreamHealthMonitor } from "./engine/streamHealth.js";
 
 function countVwapCrosses(closes, vwapSeries, lookback) {
   if (closes.length < lookback || vwapSeries.length < lookback) return null;
@@ -356,6 +357,8 @@ export async function runApplication({
   });
   await onRuntimeReady(tradingRuntime);
   let shuttingDown = false;
+  let streamHealthMonitor = null;
+  let managedStreams = [];
   const shutdown = async (signal) => {
     if (shuttingDown) return;
     shuttingDown = true;
@@ -370,6 +373,8 @@ export async function runApplication({
       console.error(`Live kill switch failed on ${signal}: ${error?.message ?? String(error)}`);
       process.exitCode = 1;
     } finally {
+      streamHealthMonitor?.stop();
+      for (const stream of managedStreams) stream.close();
       try {
         await onShutdown(signal);
       } catch (error) {
@@ -388,6 +393,18 @@ export async function runApplication({
   const polymarketLiveStream = startPolymarketChainlinkPriceStream({});
   const chainlinkStream = startChainlinkPriceStream({});
   const twapStream = startPolymarketTwapStream({});
+  managedStreams = [binanceStream, polymarketLiveStream, chainlinkStream, twapStream];
+  streamHealthMonitor = new StreamHealthMonitor({
+    streams: [
+      { name: "binance", stream: binanceStream, staleAfterMs: CONFIG.streamHealth.binanceStaleMs },
+      { name: "polymarket_current", stream: polymarketLiveStream, staleAfterMs: CONFIG.streamHealth.polymarketLiveStaleMs },
+      { name: "chainlink_fallback", stream: chainlinkStream, staleAfterMs: null },
+      { name: "polymarket_twap", stream: twapStream, staleAfterMs: CONFIG.streamHealth.twapStaleMs }
+    ],
+    checkIntervalMs: CONFIG.streamHealth.checkIntervalMs,
+    restartCooldownMs: CONFIG.streamHealth.restartCooldownMs
+  });
+  streamHealthMonitor.start();
   const referenceGate = new ReferencePriceGate({
     stream: twapStream,
     ...CONFIG.referenceData
@@ -661,7 +678,7 @@ export async function runApplication({
           } : null,
           summary: tradingSummary
         },
-        session: {}
+        session: { streamHealth: streamHealthMonitor.getSnapshot() }
       });
 
       onSnapshot(dashboardSnapshot);

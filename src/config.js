@@ -55,6 +55,14 @@ function liveBoolean(envName, configKey, defaultValue) {
   return String(liveValue(envName, configKey, defaultValue)).toLowerCase() === "true";
 }
 
+function positiveNumber(envName, defaultValue) {
+  const value = Number(process.env[envName] ?? defaultValue);
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`${envName} must be a positive number.`);
+  }
+  return value;
+}
+
 export const CONFIG = {
   symbol: "BTCUSDT",
   binanceBaseUrl: "https://api.binance.com",
@@ -102,6 +110,14 @@ export const CONFIG = {
     filePath: process.env.MARKET_REFERENCE_FILE || "./logs/market_references.csv",
     captureGraceMs: Number(process.env.TWAP_CAPTURE_GRACE_MS || 5_000),
     freshnessMs: Number(process.env.TWAP_FRESHNESS_MS || 5_000)
+  },
+
+  streamHealth: {
+    checkIntervalMs: positiveNumber("STREAM_HEALTH_CHECK_MS", 5_000),
+    restartCooldownMs: positiveNumber("STREAM_RESTART_COOLDOWN_MS", 15_000),
+    binanceStaleMs: positiveNumber("BINANCE_STREAM_STALE_MS", 30_000),
+    polymarketLiveStaleMs: positiveNumber("POLYMARKET_LIVE_STREAM_STALE_MS", 15_000),
+    twapStaleMs: positiveNumber("TWAP_STREAM_STALE_MS", 15_000)
   },
 
   polymarket: {

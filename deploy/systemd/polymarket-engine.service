@@ -1,0 +1,50 @@
+[Unit]
+Description=Polymarket BTC 15m Trading Engine
+Documentation=https://github.com/boycez/PolymarketBTC15mAssistant
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=polymarket
+Group=polymarket
+WorkingDirectory=/opt/polymarket-btc15m
+Environment=NODE_ENV=production
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=/etc/polymarket-btc15m/engine.env
+ExecStart=/usr/bin/env node /opt/polymarket-btc15m/src/engine.js
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+RuntimeDirectory=polymarket-btc15m
+RuntimeDirectoryMode=0700
+UMask=0077
+
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/opt/polymarket-btc15m/logs /run/polymarket-btc15m
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=polymarket-engine
+
+[Install]
+WantedBy=multi-user.target

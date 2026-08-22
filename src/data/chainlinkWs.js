@@ -35,6 +35,12 @@ export function startChainlinkPriceStream({
       getLast() {
         return { price: null, updatedAt: null, source: "chainlink_ws" };
       },
+      getHealth() {
+        return { enabled: false, connected: false, connectedAt: null, lastMessageAt: null, reconnectCount: 0, lastError: null };
+      },
+      restart() {
+        return false;
+      },
       close() {}
     };
   }
@@ -44,12 +50,34 @@ export function startChainlinkPriceStream({
   let reconnectMs = 500;
   let reconnectTimer = null;
   let urlIndex = 0;
+  let connected = false;
+  let connectedAt = null;
+  let lastMessageAt = null;
+  let reconnectCount = 0;
+  let lastError = null;
 
   let lastPrice = null;
   let lastUpdatedAt = null;
 
   let nextId = 1;
   let subId = null;
+
+  const scheduleReconnect = (reason) => {
+    if (closed || reconnectTimer) return;
+    connected = false;
+    lastError = reason instanceof Error ? reason.message : reason ? String(reason) : lastError;
+    try {
+      ws?.terminate();
+    } catch {
+      // ignore
+    }
+    ws = null;
+    subId = null;
+    reconnectCount += 1;
+    const wait = reconnectMs;
+    reconnectMs = Math.min(10_000, Math.floor(reconnectMs * 1.5));
+    reconnectTimer = setTimeout(connect, wait);
+  };
 
   const connect = () => {
     if (closed) return;
@@ -68,22 +96,11 @@ export function startChainlinkPriceStream({
       }
     };
 
-    const scheduleReconnect = () => {
-      if (closed || reconnectTimer) return;
-      try {
-        ws?.terminate();
-      } catch {
-        // ignore
-      }
-      ws = null;
-      subId = null;
-      const wait = reconnectMs;
-      reconnectMs = Math.min(10_000, Math.floor(reconnectMs * 1.5));
-      reconnectTimer = setTimeout(connect, wait);
-    };
-
     ws.on("open", () => {
+      connected = true;
+      connectedAt = Date.now();
       reconnectMs = 500;
+      lastError = null;
       const id = nextId++;
       send({
         jsonrpc: "2.0",
@@ -128,6 +145,7 @@ export function startChainlinkPriceStream({
 
         lastPrice = Number.isFinite(price) ? price : lastPrice;
         lastUpdatedAt = updatedAt ? updatedAt * 1000 : lastUpdatedAt;
+        lastMessageAt = Date.now();
 
         if (typeof onUpdate === "function") {
           onUpdate({ price: lastPrice, updatedAt: lastUpdatedAt, source: "chainlink_ws" });
@@ -138,7 +156,7 @@ export function startChainlinkPriceStream({
     });
 
     ws.on("close", scheduleReconnect);
-    ws.on("error", scheduleReconnect);
+    ws.on("error", (error) => scheduleReconnect(error));
   };
 
   connect();
@@ -147,8 +165,17 @@ export function startChainlinkPriceStream({
     getLast() {
       return { price: lastPrice, updatedAt: lastUpdatedAt, source: "chainlink_ws" };
     },
+    getHealth() {
+      return { enabled: true, connected, connectedAt, lastMessageAt, reconnectCount, lastError };
+    },
+    restart(reason = "manual_restart") {
+      if (closed) return false;
+      scheduleReconnect(reason);
+      return true;
+    },
     close() {
       closed = true;
+      connected = false;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       reconnectTimer = null;
       try {

@@ -283,6 +283,27 @@ npm start paper
 npm start live
 ```
 
+## Stream health and systemd
+
+The Engine monitors Binance, Polymarket current-price, Chainlink fallback, and
+official Polymarket TWAP WebSocket health. A connected stream that stops
+delivering valid data is marked stale and force-reconnected with a cooldown;
+the Dashboard shows the aggregate health in `Data Streams`.
+
+Optional watchdog settings:
+
+- `STREAM_HEALTH_CHECK_MS` (default: `5000`)
+- `STREAM_RESTART_COOLDOWN_MS` (default: `15000`)
+- `BINANCE_STREAM_STALE_MS` (default: `30000`)
+- `POLYMARKET_LIVE_STREAM_STALE_MS` (default: `15000`)
+- `TWAP_STREAM_STALE_MS` (default: `15000`)
+
+An Azure Linux VM systemd template and Paper-first installation guide are in
+[`deploy/systemd/`](deploy/systemd/README.md). It runs under a dedicated
+unprivileged account, uses an owner-only runtime socket, writes process output
+to journald, restarts after failures, and performs graceful shutdown. It does
+not configure SSH or unattended Live credentials.
+
 You can also select a mode with `TRADING_MODE=paper|live` or
 `node src/index.js --mode=paper|live`. A CLI argument takes precedence over the
 environment variable.

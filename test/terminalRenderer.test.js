@@ -115,8 +115,13 @@ test("renders detached Engine link state and snapshot age", () => {
   const base = paperSnapshot();
   const output = stripAnsi(renderTerminalDashboard({
     ...base,
-    session: { engineConnection: "DISCONNECTED", snapshotAgeMs: 12_400 }
+    session: {
+      engineConnection: "DISCONNECTED",
+      snapshotAgeMs: 12_400,
+      streamHealth: { summary: { healthy: 2, reconnecting: 1, stale: 1, disabled: 0 } }
+    }
   }));
 
   assert.match(output, /Engine Link:\s+DISCONNECTED \| snapshot 12\.4s old/);
+  assert.match(output, /Data Streams:\s+2 healthy \| 1 reconnecting \| 1 stale \| 0 disabled/);
 });

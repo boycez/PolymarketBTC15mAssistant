@@ -132,6 +132,12 @@ function formatSnapshotAge(ageMs) {
   return `${(ageMs / 60_000).toFixed(1)}m`;
 }
 
+function formatStreamHealth(streamHealth) {
+  if (!streamHealth?.summary) return null;
+  const summary = streamHealth.summary;
+  return `${summary.healthy ?? 0} healthy | ${summary.reconnecting ?? 0} reconnecting | ${summary.stale ?? 0} stale | ${summary.disabled ?? 0} disabled`;
+}
+
 export function renderTerminalDashboard(snapshot, { width = 80 } = {}) {
   const safeWidth = Number.isFinite(width) && width >= 40 ? Math.floor(width) : 80;
   const market = snapshot.market ?? {};
@@ -139,6 +145,7 @@ export function renderTerminalDashboard(snapshot, { width = 80 } = {}) {
   const readiness = snapshot.readiness ?? {};
   const trading = snapshot.trading ?? {};
   const session = snapshot.session ?? {};
+  const streamHealth = formatStreamHealth(session.streamHealth);
   const summary = trading.summary ?? {};
   const account = trading.account ?? null;
   const control = trading.control ?? {};
@@ -245,6 +252,7 @@ export function renderTerminalDashboard(snapshot, { width = 80 } = {}) {
     section("Session"),
     "",
     session.engineConnection ? kv("Engine Link:", `${session.engineConnection} | snapshot ${formatSnapshotAge(session.snapshotAgeMs)} old`) : null,
+    streamHealth ? kv("Data Streams:", streamHealth) : null,
     session.controlFeedback ? kv("Control Reply:", session.controlFeedback) : null,
     kv("ET | Session:", `${ANSI.white}${fmtEtTime(generatedAt)}${ANSI.reset} | ${ANSI.white}${btcSession(generatedAt)}${ANSI.reset}`),
     "",
