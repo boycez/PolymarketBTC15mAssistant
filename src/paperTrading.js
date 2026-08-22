@@ -305,15 +305,15 @@ export class PaperTrader {
     const expectedRegime = side === "UP" ? "TREND_UP" : side === "DOWN" ? "TREND_DOWN" : null;
     const trendIsEligible = !this.requireTrendAlignment || regime === expectedRegime;
 
-    if (recommendation?.action !== "ENTER" || !expectedRegime) {
-      this.candidate = null;
-      const reason = formatRecommendationReason(recommendation?.reason);
-      return { state: "WAITING", text: `waiting: ${reason}` };
-    }
     if (!timeIsEligible) {
       this.candidate = null;
       const remaining = Number.isFinite(remainingMinutes) ? `${remainingMinutes.toFixed(1)}m remaining` : "time unavailable";
       return { state: "WAITING", text: `waiting: outside entry window (${remaining})` };
+    }
+    if (recommendation?.action !== "ENTER" || !expectedRegime) {
+      this.candidate = null;
+      const reason = formatRecommendationReason(recommendation?.reason);
+      return { state: "WAITING", text: `waiting: ${reason}` };
     }
     if (!trendIsEligible) {
       this.candidate = null;

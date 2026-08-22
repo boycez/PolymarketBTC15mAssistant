@@ -126,14 +126,16 @@ Reference states are fail-closed:
 - `ARMED`: connected before the next market starts; trading is closed.
 - `SYNCING`: waiting briefly for the exact start observation; trading is closed.
 - `READY`: exact start TWAP is validated and current TWAP is fresh; trading is open.
-- `MISSED_WINDOW`: the process missed the exact start observation; no trades are
-  allowed for the rest of that market.
+- `MISSED_WINDOW`: the exact start observation is not available; trading remains
+  closed unless the official stream later delivers that exact timestamp.
 - `DEGRADED`: the stream is disconnected, stale, or incompatible; trading is closed.
 
 Starting the process in the middle of a market normally produces
-`MISSED_WINDOW`. Keep it running until the next 15-minute boundary. A restart
-can restore `READY` only when the current market already has a valid persisted
-reference record.
+`MISSED_WINDOW`. Keep it running until the next 15-minute boundary. A delayed
+official sample can restore `READY` only when its observation timestamp exactly
+matches the market start; nearby or current prices are never substituted. A
+restart can also restore `READY` when the current market already has a valid
+persisted reference record.
 
 Optional environment variables:
 

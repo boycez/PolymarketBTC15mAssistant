@@ -79,7 +79,7 @@ test("enters READY only with the exact market-start TWAP", () => {
   assert.equal(state.currentTwap, "115234.56789");
 });
 
-test("marks the whole window missed when the exact start sample is unavailable", () => {
+test("recovers a missed window when the exact start sample arrives late", () => {
   let startSample = null;
   const stream = {
     getAt(timestamp) {
@@ -101,6 +101,30 @@ test("marks the whole window missed when the exact start sample is unavailable",
   assert.equal(state.state, "MISSED_WINDOW");
   assert.equal(state.reason, "start_twap_not_captured");
   assert.equal(state.tradingAllowed, false);
+  assert.equal(laterState.state, "READY");
+  assert.equal(laterState.tradingAllowed, true);
+  assert.equal(laterState.priceToBeatE18, PRICE_E18);
+});
+
+test("keeps the window missed when only an approximate start sample arrives", () => {
+  let approximateSample = null;
+  const stream = {
+    getAt(timestamp) {
+      return approximateSample?.observedAtMs === timestamp ? approximateSample : null;
+    },
+    getLast() {
+      return approximateSample ?? sample(START_MS + 6_000);
+    },
+    isConnected() {
+      return true;
+    }
+  };
+  const gate = createGate(stream);
+
+  assert.equal(gate.evaluate(market(), START_MS + 6_000).state, "MISSED_WINDOW");
+  approximateSample = sample(START_MS + 1);
+  const laterState = gate.evaluate(market(), START_MS + 7_000);
+
   assert.equal(laterState.state, "MISSED_WINDOW");
   assert.equal(laterState.tradingAllowed, false);
 });

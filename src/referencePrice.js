@@ -98,9 +98,6 @@ export class ReferencePriceGate {
         && formatE18(reference.price_e18) === reference.price_decimal;
       if (!persistedValid) reference = null;
     }
-    if (this.missedMarkets.has(key)) {
-      return this.#state("MISSED_WINDOW", "start_twap_not_captured", { market, startMs, endMs, nowMs });
-    }
     if (!reference && nowMs >= startMs) {
       const sample = this.stream.getAt(startMs);
       if (sample && sample.symbol === this.symbol && sample.windowSeconds === this.windowSeconds) {
@@ -118,11 +115,15 @@ export class ReferencePriceGate {
           validation: "VALID"
         };
         this.references.set(key, reference);
+        this.missedMarkets.delete(key);
         this.#save();
       }
     }
 
     if (!reference) {
+      if (this.missedMarkets.has(key)) {
+        return this.#state("MISSED_WINDOW", "start_twap_not_captured", { market, startMs, endMs, nowMs });
+      }
       if (nowMs < startMs) return this.#state("ARMED", "waiting_for_market_start", { market, startMs, endMs, nowMs });
       if (nowMs <= startMs + this.captureGraceMs) return this.#state("SYNCING", "waiting_for_start_twap", { market, startMs, endMs, nowMs });
       this.missedMarkets.add(key);

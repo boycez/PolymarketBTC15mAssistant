@@ -137,6 +137,17 @@ test("does not trade during the early phase", () => {
   assert.equal(trader.candidate, null);
 });
 
+test("reports the entry window before an early recommendation gate", () => {
+  const trader = createTrader();
+  const status = trader.observe({
+    ...eligibleInput(),
+    recommendation: { action: "NO_TRADE", side: null, phase: "EARLY", reason: "prob_below_0.55" },
+    remainingMinutes: 12
+  });
+
+  assert.equal(status.text, "waiting: outside entry window (12.0m remaining)");
+});
+
 test("blocks entry unless the official TWAP reference is READY", () => {
   const trader = createTrader();
   const input = eligibleInput({
