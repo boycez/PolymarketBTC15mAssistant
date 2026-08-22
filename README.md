@@ -110,6 +110,14 @@ This project reads configuration from environment variables.
 
 You can set them in your shell, or create a `.env` file and load it using your preferred method.
 
+### Binance public market data
+
+- `BINANCE_BASE_URL` (default: `https://data-api.binance.vision`)
+- `BINANCE_WS_BASE_URL` (default: `wss://data-stream.binance.vision`)
+
+The defaults use Binance's official market-data-only endpoints. They do not
+provide account or order APIs.
+
 ### Polymarket
 
 - `POLYMARKET_AUTO_SELECT_LATEST` (default: `true`)

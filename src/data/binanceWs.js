@@ -7,12 +7,12 @@ function toNumber(x) {
   return Number.isFinite(n) ? n : null;
 }
 
-function buildWsUrl(symbol) {
+export function buildBinanceTradeStreamUrl(symbol, baseUrl = CONFIG.binanceWsBaseUrl) {
   const s = String(symbol || "").toLowerCase();
-  return `wss://stream.binance.com:9443/ws/${s}@trade`;
+  return new URL(`/ws/${s}@trade`, baseUrl).toString();
 }
 
-export function startBinanceTradeStream({ symbol = CONFIG.symbol, onUpdate } = {}) {
+export function startBinanceTradeStream({ symbol = CONFIG.symbol, wsBaseUrl = CONFIG.binanceWsBaseUrl, onUpdate } = {}) {
   let ws = null;
   let closed = false;
   let reconnectMs = 500;
@@ -44,7 +44,7 @@ export function startBinanceTradeStream({ symbol = CONFIG.symbol, onUpdate } = {
     if (closed) return;
     reconnectTimer = null;
 
-    const url = buildWsUrl(symbol);
+    const url = buildBinanceTradeStreamUrl(symbol, wsBaseUrl);
     ws = new WebSocket(url, { agent: wsAgentForUrl(url) });
 
     ws.on("open", () => {

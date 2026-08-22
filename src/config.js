@@ -65,7 +65,8 @@ function positiveNumber(envName, defaultValue) {
 
 export const CONFIG = {
   symbol: "BTCUSDT",
-  binanceBaseUrl: "https://api.binance.com",
+  binanceBaseUrl: process.env.BINANCE_BASE_URL || "https://data-api.binance.vision",
+  binanceWsBaseUrl: process.env.BINANCE_WS_BASE_URL || "wss://data-stream.binance.vision",
   gammaBaseUrl: "https://gamma-api.polymarket.com",
   clobBaseUrl: "https://clob.polymarket.com",
 
