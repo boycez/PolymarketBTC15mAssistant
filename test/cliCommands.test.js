@@ -6,7 +6,13 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { engineInvocation, foregroundInvocation, parsePolyCommand, updateInvocations } from "../src/cli/commands.js";
+import {
+  engineInvocation,
+  foregroundInvocation,
+  installationOwnershipInvocations,
+  parsePolyCommand,
+  updateInvocations
+} from "../src/cli/commands.js";
 
 test("parses the public poly command surface", () => {
   assert.deepEqual(parsePolyCommand([]), { command: "help" });
@@ -39,6 +45,23 @@ test("updates an installed service fail-closed before restarting it", () => {
     { command: "npm", args: ["test"] },
     { command: "npm", args: ["link"] },
     { command: "/usr/bin/node", args: ["/opt/polymarket-btc-assistant/src/cli.js", "install"] }
+  ]);
+});
+
+test("restores recursive service ownership for runtime logs", () => {
+  assert.deepEqual(installationOwnershipInvocations({
+    deploymentName: "polymarket-btc-assistant",
+    repositoryRoot: "/opt/polymarket-btc-assistant"
+  }), [
+    {
+      command: "chown",
+      args: ["-R", "root:polymarket-btc-assistant", "/opt/polymarket-btc-assistant"]
+    },
+    {
+      command: "chown",
+      args: ["-R", "polymarket-btc-assistant:polymarket-btc-assistant", "/opt/polymarket-btc-assistant/logs"]
+    },
+    { command: "chmod", args: ["0700", "/opt/polymarket-btc-assistant/logs"] }
   ]);
 });
 

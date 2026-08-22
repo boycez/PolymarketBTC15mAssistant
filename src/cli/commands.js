@@ -80,3 +80,12 @@ export function updateInvocations({ nodeExecutable, repositoryRoot }) {
     { command: nodeExecutable, args: [`${repositoryRoot}/src/cli.js`, "install"] }
   ];
 }
+
+export function installationOwnershipInvocations({ deploymentName, repositoryRoot }) {
+  const logsDirectory = `${repositoryRoot}/logs`;
+  return [
+    { command: "chown", args: ["-R", `root:${deploymentName}`, repositoryRoot] },
+    { command: "chown", args: ["-R", `${deploymentName}:${deploymentName}`, logsDirectory] },
+    { command: "chmod", args: ["0700", logsDirectory] }
+  ];
+}

@@ -5,7 +5,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { engineInvocation, foregroundInvocation, POLY_HELP, parsePolyCommand, updateInvocations } from "./cli/commands.js";
+import {
+  engineInvocation,
+  foregroundInvocation,
+  installationOwnershipInvocations,
+  POLY_HELP,
+  parsePolyCommand,
+  updateInvocations
+} from "./cli/commands.js";
 
 const DEPLOYMENT_NAME = "polymarket-btc-assistant";
 const SERVICE_NAME = `${DEPLOYMENT_NAME}.service`;
@@ -60,9 +67,11 @@ function installService() {
 
   run("install", ["-d", "-o", "root", "-g", DEPLOYMENT_NAME, "-m", "0750", `/etc/${DEPLOYMENT_NAME}`]);
   run("install", ["-d", "-o", DEPLOYMENT_NAME, "-g", DEPLOYMENT_NAME, "-m", "0700", path.join(REPOSITORY_ROOT, "logs")]);
-  run("chown", ["-R", `root:${DEPLOYMENT_NAME}`, REPOSITORY_ROOT]);
-  run("chown", [`${DEPLOYMENT_NAME}:${DEPLOYMENT_NAME}`, path.join(REPOSITORY_ROOT, "logs")]);
-  run("chmod", ["0700", path.join(REPOSITORY_ROOT, "logs")]);
+  const ownershipInvocations = installationOwnershipInvocations({
+    deploymentName: DEPLOYMENT_NAME,
+    repositoryRoot: REPOSITORY_ROOT
+  });
+  for (const invocation of ownershipInvocations) run(invocation.command, invocation.args);
 
   if (!fs.existsSync(SERVICE_ENV)) {
     run("install", ["-m", "0600", path.join(REPOSITORY_ROOT, "deploy/systemd/engine.env.example"), SERVICE_ENV]);
