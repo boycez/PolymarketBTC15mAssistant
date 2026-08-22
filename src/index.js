@@ -29,6 +29,7 @@ import { createTradingRuntime } from "./trading/createTradingRuntime.js";
 import { formatRecommendationReason, strategyGateCategory } from "./trading/strategy.js";
 import { createRuntimeSnapshot } from "./dashboard/runtimeSnapshot.js";
 import { renderTerminalDashboard } from "./dashboard/terminalRenderer.js";
+import { pathToFileURL } from "node:url";
 
 function countVwapCrosses(closes, vwapSeries, lookback) {
   if (closes.length < lookback || vwapSeries.length < lookback) return null;
@@ -329,7 +330,11 @@ async function fetchPolymarketSnapshot() {
   };
 }
 
-async function main() {
+export async function runApplication({
+  renderDashboard = true,
+  onSnapshot = () => {},
+  onShutdown = async () => {}
+} = {}) {
   const livePrivateKey = await acquireLivePrivateKey({
     mode: CONFIG.trading.mode,
     enabled: CONFIG.liveTrading.enabled
@@ -362,12 +367,20 @@ async function main() {
       console.error(`Live kill switch failed on ${signal}: ${error?.message ?? String(error)}`);
       process.exitCode = 1;
     } finally {
+      try {
+        await onShutdown(signal);
+      } catch (error) {
+        console.error(`Shutdown cleanup failed on ${signal}: ${error?.message ?? String(error)}`);
+        process.exitCode = 1;
+      }
       process.exit();
     }
   };
   process.once("SIGINT", () => void shutdown("SIGINT"));
   process.once("SIGTERM", () => void shutdown("SIGTERM"));
-  const liveKeyboardEnabled = startLiveKeyboardControls({ runtime: tradingRuntime, onShutdown: shutdown });
+  const liveKeyboardEnabled = renderDashboard
+    ? startLiveKeyboardControls({ runtime: tradingRuntime, onShutdown: shutdown })
+    : false;
   const binanceStream = startBinanceTradeStream({ symbol: CONFIG.symbol });
   const polymarketLiveStream = startPolymarketChainlinkPriceStream({});
   const chainlinkStream = startChainlinkPriceStream({});
@@ -646,7 +659,10 @@ async function main() {
         session: {}
       });
 
-      renderScreen(renderTerminalDashboard(dashboardSnapshot, { width: screenWidth() }));
+      onSnapshot(dashboardSnapshot);
+      if (renderDashboard) {
+        renderScreen(renderTerminalDashboard(dashboardSnapshot, { width: screenWidth() }));
+      }
 
       prevSpotPrice = spotPrice ?? prevSpotPrice;
       prevCurrentPrice = currentPrice ?? prevCurrentPrice;
@@ -698,7 +714,10 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(`Startup Error: ${error?.message ?? String(error)}`);
-  process.exitCode = 1;
-});
+const isDirectRun = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isDirectRun) {
+  runApplication().catch((error) => {
+    console.error(`Startup Error: ${error?.message ?? String(error)}`);
+    process.exitCode = 1;
+  });
+}

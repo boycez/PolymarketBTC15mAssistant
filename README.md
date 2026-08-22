@@ -228,6 +228,29 @@ npm run paper
 npm run live
 ```
 
+On macOS or Linux, the trading engine can also run headlessly without owning a
+terminal dashboard:
+
+```bash
+npm run engine -- paper
+npm run engine -- live
+```
+
+The headless Engine runs the same market, strategy, logging, and Paper/Live
+trading loop as combined mode. Each runtime snapshot is published as
+newline-delimited JSON over an owner-only (`0600`) local Unix socket. The
+default path is:
+
+```text
+/tmp/polymarket-btc15m-<uid>.sock
+```
+
+Set `POLYMARKET_ENGINE_SOCKET` to use a different local socket path. Starting a
+second Engine against an active socket fails instead of replacing the running
+Engine. Closing an attached client does not stop the Engine. Live mode remains
+stopped after every startup; remote arming controls are not enabled by the
+snapshot-only socket.
+
 You can also select a mode with `TRADING_MODE=paper|live` or
 `node src/index.js --mode=paper|live`. A CLI argument takes precedence over the
 environment variable.

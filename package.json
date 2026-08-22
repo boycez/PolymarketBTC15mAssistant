@@ -10,6 +10,7 @@
     "start": "node src/index.js",
     "paper": "node src/index.js --mode=paper",
     "live": "node src/index.js --mode=live",
+    "engine": "node src/engine.js",
     "test": "node --test"
   },
   "dependencies": {
