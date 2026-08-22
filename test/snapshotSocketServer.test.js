@@ -49,6 +49,24 @@ test("broadcasts newline-delimited snapshots with owner-only permissions", async
   assert.deepEqual(JSON.parse(await received), snapshot);
 });
 
+test("sends the latest snapshot immediately to a newly attached client", async (context) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "poly-engine-test-"));
+  const socketPath = path.join(directory, "engine.sock");
+  const server = new SnapshotSocketServer({ socketPath });
+  context.after(async () => {
+    await server.close();
+    await fs.rm(directory, { recursive: true, force: true });
+  });
+
+  await server.start();
+  const snapshot = { version: 1, generatedAt: "2026-08-22T06:30:00.000Z" };
+  server.publish(snapshot);
+
+  const client = await connect(socketPath);
+  context.after(() => client.destroy());
+  assert.deepEqual(JSON.parse(await readLine(client)), snapshot);
+});
+
 test("refuses to replace a socket owned by an active engine", async (context) => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "poly-engine-test-"));
   const socketPath = path.join(directory, "engine.sock");

@@ -31,6 +31,7 @@ export class SnapshotSocketServer {
     this.server = null;
     this.clients = new Set();
     this.ownsSocket = false;
+    this.latestMessage = null;
   }
 
   async start() {
@@ -52,6 +53,7 @@ export class SnapshotSocketServer {
       this.clients.add(client);
       client.once("close", () => this.clients.delete(client));
       client.once("error", () => this.clients.delete(client));
+      if (this.latestMessage) client.write(this.latestMessage);
     });
 
     await new Promise((resolve, reject) => {
@@ -68,8 +70,9 @@ export class SnapshotSocketServer {
   }
 
   publish(snapshot) {
-    if (!this.server) return;
     const message = `${JSON.stringify(snapshot)}\n`;
+    this.latestMessage = message;
+    if (!this.server) return;
     for (const client of this.clients) {
       if (!client.destroyed) client.write(message);
     }
@@ -81,6 +84,7 @@ export class SnapshotSocketServer {
 
     const server = this.server;
     this.server = null;
+    this.latestMessage = null;
     if (server) {
       await new Promise((resolve) => server.close(resolve));
     }

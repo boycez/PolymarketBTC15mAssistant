@@ -110,3 +110,13 @@ test("renders Live account and pending confirmation details", () => {
   assert.match(output, /Stake:\s+\$5\.00/);
   assert.match(output, /Session Limit:\s+1 trade/);
 });
+
+test("renders detached Engine link state and snapshot age", () => {
+  const base = paperSnapshot();
+  const output = stripAnsi(renderTerminalDashboard({
+    ...base,
+    session: { engineConnection: "DISCONNECTED", snapshotAgeMs: 12_400 }
+  }));
+
+  assert.match(output, /Engine Link:\s+DISCONNECTED \| snapshot 12\.4s old/);
+});

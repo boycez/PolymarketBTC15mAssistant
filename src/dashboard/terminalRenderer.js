@@ -125,12 +125,20 @@ function maskAddress(value) {
   return address.length >= 12 ? `${address.slice(0, 6)}...${address.slice(-4)}` : "-";
 }
 
+function formatSnapshotAge(ageMs) {
+  if (!Number.isFinite(ageMs) || ageMs < 0) return "-";
+  if (ageMs < 1_000) return "<1s";
+  if (ageMs < 60_000) return `${(ageMs / 1_000).toFixed(1)}s`;
+  return `${(ageMs / 60_000).toFixed(1)}m`;
+}
+
 export function renderTerminalDashboard(snapshot, { width = 80 } = {}) {
   const safeWidth = Number.isFinite(width) && width >= 40 ? Math.floor(width) : 80;
   const market = snapshot.market ?? {};
   const signal = snapshot.signal ?? {};
   const readiness = snapshot.readiness ?? {};
   const trading = snapshot.trading ?? {};
+  const session = snapshot.session ?? {};
   const summary = trading.summary ?? {};
   const account = trading.account ?? null;
   const control = trading.control ?? {};
@@ -236,6 +244,7 @@ export function renderTerminalDashboard(snapshot, { width = 80 } = {}) {
     "",
     section("Session"),
     "",
+    session.engineConnection ? kv("Engine Link:", `${session.engineConnection} | snapshot ${formatSnapshotAge(session.snapshotAgeMs)} old`) : null,
     kv("ET | Session:", `${ANSI.white}${fmtEtTime(generatedAt)}${ANSI.reset} | ${ANSI.white}${btcSession(generatedAt)}${ANSI.reset}`),
     "",
     separator(safeWidth),

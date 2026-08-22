@@ -251,6 +251,27 @@ Engine. Closing an attached client does not stop the Engine. Live mode remains
 stopped after every startup; remote arming controls are not enabled by the
 snapshot-only socket.
 
+Attach the read-only terminal Dashboard from a second terminal:
+
+```bash
+npm run dashboard
+```
+
+The Dashboard immediately receives the Engine's latest cached snapshot, shows
+the Engine connection state and snapshot age, and reconnects automatically if
+the Engine restarts. Pressing `Ctrl+C` detaches only the Dashboard; the Engine
+continues running. The transport is a local Unix socket, not a browser or TCP
+service, and snapshots with malformed JSON or unsupported protocol versions are
+ignored.
+
+For local development, combined mode remains available and does not require a
+second terminal:
+
+```bash
+npm start paper
+npm start live
+```
+
 You can also select a mode with `TRADING_MODE=paper|live` or
 `node src/index.js --mode=paper|live`. A CLI argument takes precedence over the
 environment variable.
